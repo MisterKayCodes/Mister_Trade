@@ -1,0 +1,26 @@
+# Environment variables (secrets)
+.env
+
+# Database file (contains live trade state)
+mister_trade.db
+mister_trade.db-journal
+mister_trade.db-wal
+mister_trade.db-shm
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
