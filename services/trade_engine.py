@@ -33,7 +33,7 @@ from datetime import datetime, timezone
 from config import PAIRS, CYCLE_INTERVAL
 from providers.price.coingecko import get_crypto_price
 from core.movement.detector import has_moved, calculate_movement
-from core.signals.generator import create_signal
+from core.signals.generator import create_signal, get_pair_rules
 from core.trades.tracker import evaluate_trade
 import data.repository as repo
 
@@ -70,7 +70,7 @@ def _max_trades_reached(settings: dict) -> bool:
 # Trade monitoring (active trade exists)
 # ==============================================================
 
-def _handle_active_trade(trade: dict, current_price: float) -> None:
+def _handle_active_trade(trade: dict, current_price: float, settings: dict) -> None:
     """
     Evaluate an open trade against the current price and act:
       HOLD         → update the stored price snapshot
@@ -80,7 +80,7 @@ def _handle_active_trade(trade: dict, current_price: float) -> None:
     trade_id = trade["id"]
     pair     = trade["pair"]
 
-    result = evaluate_trade(trade, current_price)
+    result = evaluate_trade(trade, current_price, settings)
     action = result["action"]
     stage  = result["stage"]
     price  = result["price"]
@@ -137,7 +137,11 @@ def _handle_no_trade(pair: str, current_price: float, settings: dict) -> None:
     When no trade is open for a pair, check whether the price has
     moved enough from the reference to generate a new signal.
     """
-    threshold = float(settings.get("pip_threshold", 300))
+    rules = get_pair_rules(pair)
+    if not rules:
+        return
+    
+    threshold = rules["threshold"]
     reference = repo.get_reference_price(pair)
 
     # No reference yet — this is the first ever cycle for this pair.
@@ -170,7 +174,7 @@ def _handle_no_trade(pair: str, current_price: float, settings: dict) -> None:
         )
         return
 
-    signal = create_signal(pair, reference, current_price, threshold)
+    signal = create_signal(pair, reference, current_price)
     if signal is None:
         return  # Edge case: movement recalculated below threshold
 
@@ -222,7 +226,7 @@ def run_cycle(pair: str) -> None:
         active_trade = repo.get_active_trade(pair)
 
         if active_trade:
-            _handle_active_trade(active_trade, current_price)
+            _handle_active_trade(active_trade, current_price, settings)
         else:
             _handle_no_trade(pair, current_price, settings)
 
@@ -238,18 +242,33 @@ def run_cycle(pair: str) -> None:
 # Main loop
 # ==============================================================
 
+last_heartbeat = 0
+HEARTBEAT_INTERVAL = 300  # 5 minutes
+
 def run_forever() -> None:
     """
     Start the engine. Runs all configured pairs on every tick.
     Sleeps CYCLE_INTERVAL seconds between ticks.
     Never returns.
     """
+    global last_heartbeat
     _dual_log("INFO", "engine", f"▶  Mister Trade engine started | Pairs: {PAIRS}")
 
     while True:
+        now = time.time()
+        if now - last_heartbeat > HEARTBEAT_INTERVAL:
+            _dual_log("INFO", "engine", "💓 Heartbeat: Engine is alive and monitoring.")
+            last_heartbeat = now
+
         if not _is_trading_enabled():
             _dual_log("INFO", "engine", "Trading is DISABLED. Sleeping...")
             time.sleep(CYCLE_INTERVAL)
+            continue
+
+        dt_now = datetime.now(timezone.utc)
+        if dt_now.weekday() >= 5:  # 5=Saturday, 6=Sunday
+            _dual_log("INFO", "engine", "Market is closed for the weekend. Sleeping...")
+            time.sleep(CYCLE_INTERVAL * 5)
             continue
 
         for pair in PAIRS:
