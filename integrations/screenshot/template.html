@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Roboto', sans-serif;
+            background-color: #000000;
+            color: #FFFFFF;
+            width: 400px;
+            height: 420px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 15px;
+            padding-top: 25px;
+        }
+
+        .icon-btn {
+            width: 40px;
+            height: 40px;
+            background-color: #1C1C1E;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .header-profit {
+            font-size: 24px;
+            font-weight: 700;
+            color: #3096FA;
+        }
+
+        .summary-container {
+            padding: 10px 15px;
+        }
+
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 15px;
+        }
+
+        .summary-label {
+            color: #FFFFFF;
+        }
+
+        .summary-value {
+            color: #FFFFFF;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 15px;
+            background-color: #0A0A0A;
+            margin-top: 10px;
+            font-size: 16px;
+            font-weight: 700;
+            border-top: 1px solid #1C1C1E;
+            border-bottom: 1px solid #1C1C1E;
+        }
+
+        .trade-container {
+            padding: 15px 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .trade-left {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .trade-title {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .trade-type {
+            font-size: 14px;
+            color: {{direction_color}};
+        }
+
+        .trade-prices {
+            font-size: 14px;
+            color: #8E8E93;
+        }
+
+        .trade-right {
+            font-size: 22px;
+            font-weight: 700;
+            color: #3096FA;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="icon-btn">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#8E8E93" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="6" width="18" height="12" rx="2" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+                <circle cx="7" cy="14" r="1" fill="#8E8E93" stroke="none" />
+                <circle cx="10.33" cy="14" r="1" fill="#8E8E93" stroke="none" />
+                <circle cx="13.66" cy="14" r="1" fill="#8E8E93" stroke="none" />
+                <circle cx="17" cy="14" r="1" fill="#8E8E93" stroke="none" />
+            </svg>
+        </div>
+        <div class="header-profit">{{total_profit}} USD</div>
+        <div class="icon-btn">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="#FFFFFF">
+                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+            </svg>
+        </div>
+    </div>
+
+    <div class="summary-container">
+        <div class="summary-row">
+            <span class="summary-label">Balance:</span>
+            <span class="summary-value">{{balance}}</span>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Equity:</span>
+            <span class="summary-value">{{equity}}</span>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Margin:</span>
+            <span class="summary-value">{{margin}}</span>
+        </div>
+        <div class="summary-row">
+            <span class="summary-label">Free Margin:</span>
+            <span class="summary-value">{{free_margin}}</span>
+        </div>
+        <div class="summary-row" style="margin-bottom: 0;">
+            <span class="summary-label">Margin Level (%):</span>
+            <span class="summary-value">{{margin_level}}</span>
+        </div>
+    </div>
+
+    <div class="section-header">
+        Positions
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="#8E8E93">
+            <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+        </svg>
+    </div>
+
+    <div class="trade-container">
+        <div class="trade-left">
+            <div style="display: flex; align-items: baseline; gap: 4px;">
+                <span class="trade-title">{{pair}}</span>
+                <span class="trade-type">{{direction_text}}</span>
+            </div>
+            <div class="trade-prices">{{entry_price}} &rarr; {{current_price}}</div>
+        </div>
+        <div class="trade-right">
+            {{profit}}
+        </div>
+    </div>
+</body>
+</html>

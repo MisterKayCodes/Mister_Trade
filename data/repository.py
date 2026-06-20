@@ -180,6 +180,17 @@ def get_active_trades() -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def clear_active_trades() -> int:
+    """Force close (delete) all OPEN trades. Returns count."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM trades WHERE status = 'OPEN'")
+    count = cursor.rowcount
+    conn.commit()
+    conn.close()
+    return count
+
+
 def update_trade_stage(trade_id: int, stage: str) -> None:
     """Advance a trade to the given stage (TP1, TP2, TP3)."""
     conn = get_connection()
@@ -290,3 +301,161 @@ def log(level: str, source: str, message: str) -> None:
         conn.close()
     except Exception:
         pass  # Intentional: logging failure must not kill the engine
+
+
+# ==============================================================
+# TESTIMONIALS
+# ==============================================================
+
+def add_testimonial(script: str) -> int:
+    """Insert a new testimonial script. Returns its ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO testimonials (script) VALUES (?)", (script,))
+    tid = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return tid
+
+
+def get_random_testimonial() -> Optional[dict]:
+    """Return a random enabled testimonial, or None if the pool is empty."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM testimonials WHERE enabled = 1 ORDER BY RANDOM() LIMIT 1"
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def list_testimonials() -> list:
+    """Return all testimonials for admin display."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, script, enabled FROM testimonials ORDER BY id DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def delete_testimonial(tid: int) -> None:
+    """Permanently remove a testimonial by ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM testimonials WHERE id = ?", (tid,))
+    conn.commit()
+    conn.close()
+
+
+# ==============================================================
+# WEEKLY STATS
+# ==============================================================
+
+def get_weekly_stats() -> dict:
+    """
+    Return a summary of all closed trades from the current Mon-Sun week (UTC).
+    Returns: {wins, losses, total, win_rate, best_stage}
+    """
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    monday = now - timedelta(days=now.weekday())
+    week_start = monday.strftime("%Y-%m-%d")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT close_stage, COUNT(*) AS cnt
+        FROM trades
+        WHERE status = 'CLOSED'
+          AND date(closed_at) >= ?
+        GROUP BY close_stage
+        """,
+        (week_start,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    wins   = 0
+    losses = 0
+    for row in rows:
+        stage = row["close_stage"]
+        cnt   = row["cnt"]
+        if stage in ("TP1", "TP2", "TP3"):
+            wins += cnt
+        elif stage in ("SL", "FORCED_LOSS"):
+            losses += cnt
+
+    total    = wins + losses
+    win_rate = round((wins / total * 100), 1) if total > 0 else 0.0
+
+    return {
+        "wins":     wins,
+        "losses":   losses,
+        "total":    total,
+        "win_rate": win_rate,
+    }
+
+
+# ==============================================================
+# FLIP CAMPAIGNS
+# ==============================================================
+
+def create_flip_campaign(start_balance: float, target_balance: float) -> int:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT INTO flip_campaigns (start_balance, target_balance, current_balance, status)
+        VALUES (?, ?, ?, 'ACTIVE')
+        """,
+        (start_balance, target_balance, start_balance)
+    )
+    cid = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return cid
+
+
+def get_active_flip_campaign() -> Optional[dict]:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM flip_campaigns WHERE status = 'ACTIVE' ORDER BY id DESC LIMIT 1")
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_flip_campaign(cid: int, new_balance: float) -> None:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE flip_campaigns SET current_balance = ?, trade_count = trade_count + 1 WHERE id = ?",
+        (new_balance, cid)
+    )
+    conn.commit()
+    conn.close()
+
+
+def complete_flip_campaign(cid: int) -> None:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE flip_campaigns SET status = 'COMPLETED', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (cid,)
+    )
+    conn.commit()
+    conn.close()
+
+
+def stop_flip_campaign(cid: int) -> None:
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE flip_campaigns SET status = 'STOPPED', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (cid,)
+    )
+    conn.commit()
+    conn.close()

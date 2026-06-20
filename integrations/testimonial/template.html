@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #B0D9B3; /* Telegram greenish background */
+            /* subtle pattern to simulate doodles */
+            background-image: radial-gradient(#9AC59D 1px, transparent 1px);
+            background-size: 20px 20px;
+            width: 400px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .header {
+            position: sticky;
+            top: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 15px;
+            z-index: 10;
+        }
+
+        .header-btn {
+            width: 40px;
+            height: 40px;
+            background-color: #E8F0E3;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .header-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: #000;
+        }
+
+        .header-center {
+            background-color: #E8F0E3;
+            border-radius: 20px;
+            padding: 6px 20px;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .header-name {
+            font-size: 16px;
+            font-weight: 700;
+            color: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+
+        .header-name svg {
+            fill: #2196F3;
+            width: 14px;
+            height: 14px;
+        }
+
+        .header-status {
+            font-size: 12px;
+            color: #757575;
+            margin-top: 2px;
+        }
+
+        .header-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: {{sender_color}};
+            color: #FFF;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 16px;
+            border: 2px solid #80DEEA;
+        }
+
+        .chat-container {
+            padding: 10px 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .date-pill {
+            text-align: center;
+            margin: 10px 0;
+        }
+
+        .date-pill span {
+            background-color: rgba(140, 180, 140, 0.7);
+            color: #FFF;
+            font-size: 13px;
+            font-weight: 500;
+            padding: 4px 12px;
+            border-radius: 12px;
+        }
+
+        .bubble-wrapper {
+            display: flex;
+            width: 100%;
+        }
+
+        .bubble-wrapper.right {
+            justify-content: flex-end;
+        }
+
+        .bubble {
+            max-width: 80%;
+            padding: 8px 12px;
+            border-radius: 18px;
+            font-size: 16px;
+            line-height: 1.4;
+            color: #000;
+            position: relative;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            display: inline-block;
+        }
+
+        .bubble.them {
+            background-color: #FFFFFF;
+            border-bottom-left-radius: 4px;
+        }
+
+        .bubble.us {
+            background-color: #DCF8C6; /* Classic Telegram Green */
+            border-bottom-right-radius: 4px;
+        }
+
+        .time-container {
+            float: right;
+            margin-top: 8px;
+            margin-left: 12px;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+
+        .bubble.them .time {
+            font-size: 11px;
+            color: #9E9E9E;
+        }
+
+        .bubble.us .time {
+            font-size: 11px;
+            color: #4CAF50;
+        }
+
+        .bubble.us .checks svg {
+            fill: #4CAF50;
+            width: 16px;
+            height: 16px;
+            margin-left: 2px;
+            margin-top: 2px;
+        }
+
+        .spacer-clear {
+            clear: both;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-btn">
+            <svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>
+        </div>
+        <div class="header-center">
+            <div class="header-name">
+                {{them_name}} 
+                <svg viewBox="0 0 24 24"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+            </div>
+            <div class="header-status">last seen recently</div>
+        </div>
+        <div class="header-avatar">{{them_initial}}</div>
+    </div>
+    
+    <div class="chat-container">
+        {{messages}}
+    </div>
+</body>
+</html>

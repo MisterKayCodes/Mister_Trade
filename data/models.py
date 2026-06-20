@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS settings (
     win_streak          INTEGER DEFAULT 0,
     total_wins          INTEGER DEFAULT 0,
     total_losses        INTEGER DEFAULT 0,
-    last_loss_date      TEXT    DEFAULT NULL
+    last_loss_date      TEXT    DEFAULT NULL,
+    admin_name          TEXT    DEFAULT 'Mike',
+    admin_contact       TEXT    DEFAULT '@MisterTrade'
 )
 """
 
@@ -88,6 +90,36 @@ CREATE TABLE IF NOT EXISTS system_log (
 """
 
 # ------------------------------------------------------------------
+# Table: testimonials
+# Pool of testimonial scripts managed from the admin panel.
+# ------------------------------------------------------------------
+CREATE_TESTIMONIALS = """
+CREATE TABLE IF NOT EXISTS testimonials (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    script      TEXT    NOT NULL,
+    enabled     INTEGER DEFAULT 1,
+    created_at  TEXT    DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+# ------------------------------------------------------------------
+# Table: flip_campaigns
+# Tracks multi-trade compounding challenges.
+# ------------------------------------------------------------------
+CREATE_FLIP_CAMPAIGNS = """
+CREATE TABLE IF NOT EXISTS flip_campaigns (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    start_balance   REAL    NOT NULL,
+    target_balance  REAL    NOT NULL,
+    current_balance REAL    NOT NULL,
+    status          TEXT    DEFAULT 'ACTIVE',
+    trade_count     INTEGER DEFAULT 0,
+    created_at      TEXT    DEFAULT CURRENT_TIMESTAMP,
+    completed_at    TEXT    DEFAULT NULL
+)
+"""
+
+# ------------------------------------------------------------------
 # Seed: default settings row
 # INSERT OR IGNORE so it only runs once.
 # ------------------------------------------------------------------
@@ -95,13 +127,17 @@ SEED_SETTINGS = """
 INSERT OR IGNORE INTO settings (
     id, mode, trading_enabled, pip_threshold, max_trades_per_day,
     starting_balance, current_balance, risk_percent, lot_size,
-    win_streak, total_wins, total_losses, last_loss_date
+    win_streak, total_wins, total_losses, last_loss_date, admin_name, admin_contact
 )
 VALUES (
     1, 'crypto', 1, 300, 3,
     10000, 10000, 1.0, 0.1,
-    0, 0, 0, NULL
+    0, 0, 0, NULL, 'Mike', '@MisterTrade'
 )
+"""
+
+MIGRATION_ADMIN_CONTACT = """
+ALTER TABLE settings ADD COLUMN admin_contact TEXT DEFAULT '@MisterTrade'
 """
 
 # ------------------------------------------------------------------
@@ -112,4 +148,6 @@ ALL_TABLES: list[str] = [
     CREATE_REFERENCE_PRICES,
     CREATE_TRADES,
     CREATE_SYSTEM_LOG,
+    CREATE_TESTIMONIALS,
+    CREATE_FLIP_CAMPAIGNS,
 ]

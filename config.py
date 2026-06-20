@@ -43,7 +43,19 @@ ADMIN_IDS: list[int] = [
 # Trading Engine
 # ------------------------------------------------------------------
 # Pairs monitored by the engine
-PAIRS: list[str] = ["BTCUSD", "ETHUSD"]
+PAIRS: list[str] = ["BTCUSD", "ETHUSD", "EURUSD", "GBPUSD"]
+
+# Pairs that are Forex (pip-based movement) vs Crypto (dollar-based)
+FOREX_PAIRS: list[str] = ["EURUSD", "GBPUSD"]
+CRYPTO_PAIRS: list[str] = ["BTCUSD", "ETHUSD"]
+
+# Pip threshold for Forex pairs (30 pips = 0.0030)
+FOREX_PIP_THRESHOLD: float = 0.0030
 
 # How often the lifecycle loop runs (seconds)
 CYCLE_INTERVAL: int = int(os.getenv("CYCLE_INTERVAL", "30"))
+
+# ------------------------------------------------------------------
+# Testing
+# ------------------------------------------------------------------
+TEST_MODE: bool = os.getenv("TEST_MODE", "True").lower() in ("true", "1", "yes")

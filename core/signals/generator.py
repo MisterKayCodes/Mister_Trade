@@ -18,7 +18,7 @@ from typing import Optional
 
 
 # Per-pair rules: movement threshold and TP/SL offsets in price units.
-# These are the Brain's knowledge of each instrument.
+# Crypto: dollar-based | Forex: pip-based (1 pip = 0.0001)
 PAIR_RULES: dict = {
     "BTCUSD": {
         "threshold": 300,
@@ -33,6 +33,22 @@ PAIR_RULES: dict = {
         "tp2_offset": 35,
         "tp3_offset": 50,
         "sl_offset":  10,
+    },
+    # Forex pairs — 30-pip threshold (0.0030)
+    # TP/SL offsets are in pip units (1 pip = 0.0001)
+    "EURUSD": {
+        "threshold":  0.0030,   # 30 pips
+        "tp1_offset": 0.0030,   # 30 pips
+        "tp2_offset": 0.0050,   # 50 pips
+        "tp3_offset": 0.0080,   # 80 pips
+        "sl_offset":  0.0015,   # 15 pips
+    },
+    "GBPUSD": {
+        "threshold":  0.0030,   # 30 pips
+        "tp1_offset": 0.0030,   # 30 pips
+        "tp2_offset": 0.0050,   # 50 pips
+        "tp3_offset": 0.0080,   # 80 pips
+        "sl_offset":  0.0015,   # 15 pips
     },
 }
 

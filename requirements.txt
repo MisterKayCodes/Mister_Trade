@@ -1,5 +1,9 @@
+#use py3.11
+
 requests==2.31.0
 python-dotenv==1.0.1
 aiogram==2.25.1
 html2image==2.0.1
 feedparser==6.0.11
+APScheduler==3.10.4
+yfinance==0.2.54

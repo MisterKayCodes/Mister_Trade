@@ -31,37 +31,55 @@ RETRY_DELAY  = 2   # seconds between retries
 TIMEOUT      = 10  # seconds per request
 
 
+_CACHE = {}
+_CACHE_TTL = 15  # seconds
+
 def get_crypto_price(pair: str) -> Optional[float]:
     """
     Return the current USD price for the given pair.
 
-    Retries up to MAX_RETRIES times on any network or parse error.
-    Returns None if all attempts fail — the caller handles None gracefully.
-
-    Raises ValueError for unknown pairs (programming error, not runtime).
+    Batches requests for all configured pairs and caches them 
+    to avoid hitting the CoinGecko rate limits.
     """
     coin_id = COIN_MAP.get(pair.upper())
     if coin_id is None:
         raise ValueError(f"Unsupported pair: '{pair}'. Known pairs: {list(COIN_MAP)}")
 
+    now = time.time()
+    # Check cache first
+    if coin_id in _CACHE:
+        price, timestamp = _CACHE[coin_id]
+        if now - timestamp < _CACHE_TTL:
+            return price
+
     last_error: Optional[Exception] = None
+    all_coin_ids = ",".join(COIN_MAP.values())
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             response = requests.get(
                 API_URL,
-                params={"ids": coin_id, "vs_currencies": "usd"},
+                params={"ids": all_coin_ids, "vs_currencies": "usd"},
                 timeout=TIMEOUT,
             )
             response.raise_for_status()
             data = response.json()
-            price = float(data[coin_id]["usd"])
-            return price
+            
+            # Update cache for all fetched coins
+            for cid in COIN_MAP.values():
+                if cid in data and "usd" in data[cid]:
+                    _CACHE[cid] = (float(data[cid]["usd"]), now)
+            
+            # Return requested price if available
+            if coin_id in _CACHE:
+                return _CACHE[coin_id][0]
+                
+            return None
 
         except Exception as exc:
             last_error = exc
             if attempt < MAX_RETRIES:
                 time.sleep(RETRY_DELAY)
 
-    # All retries exhausted — log context is handled by caller
+    # All retries exhausted
     return None
