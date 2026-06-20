@@ -123,3 +123,16 @@ def flip_kb(active_campaign: bool) -> InlineKeyboardMarkup:
         )
     keyboard.add(InlineKeyboardButton(text="← Back", callback_data="admin_main"))
     return keyboard
+
+
+# ── NEW: Testimonials keyboard ──────────────────────────────────────────────
+def testimonials_kb() -> InlineKeyboardMarkup:
+    """Testimonials management keyboard."""
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    keyboard.add(
+        InlineKeyboardButton(text="📝 Add Testimonial", callback_data="testimonial_add"),
+        InlineKeyboardButton(text="📋 List Testimonials", callback_data="testimonial_list"),
+        InlineKeyboardButton(text="🗑️ Delete Testimonial", callback_data="testimonial_delete"),
+        InlineKeyboardButton(text="🔙 Back", callback_data="admin_content"),
+    )
+    return keyboard
