@@ -32,6 +32,7 @@ from services.news import get_daily_news_message
 import services.event_bus as event_bus
 from core.marketing.fake_trade import generate_fake_trade
 from integrations.testimonial.renderer import render_testimonial
+import services.notifier as notifier
 
 logger = logging.getLogger(__name__)
 
@@ -60,11 +61,14 @@ def _get_random_json(filepath: str) -> str:
 async def post_daily_news(bot: Bot) -> None:
     try:
         message = get_daily_news_message()
-        if not message: return
+        if not message:
+            await notifier.notify_soft_error(bot, "Daily News skipped — no news message was returned from the feed.")
+            return
         await bot.send_message(chat_id=CHANNEL_ID, text=message, parse_mode=ParseMode.MARKDOWN)
         logger.info("[scheduler] Daily news posted.")
     except Exception as exc:
         logger.error(f"[scheduler] News post failed: {exc}")
+        await notifier.notify_red_error(bot, f"Daily News post crashed: `{exc}`")
 
 
 async def execute_trade(bot: Bot, trade_num: int) -> None:
@@ -82,7 +86,6 @@ async def execute_trade(bot: Bot, trade_num: int) -> None:
         event_bus.publish("SIGNAL_POST", trade)
 
         # 2. Schedule TP2 / TP3 closes later today
-        # TP2: 1 to 3 hours later
         delay_tp2 = random.randint(60, 180)
         scheduler.add_job(
             close_trade_stage,
@@ -91,7 +94,6 @@ async def execute_trade(bot: Bot, trade_num: int) -> None:
             args=[bot, trade, "TP2"]
         )
 
-        # TP3: 4 to 6 hours later
         delay_tp3 = random.randint(240, 360)
         scheduler.add_job(
             close_trade_stage,
@@ -107,7 +109,7 @@ async def execute_trade(bot: Bot, trade_num: int) -> None:
                 process_flip_update,
                 trigger="date",
                 run_date=datetime.now(timezone.utc) + timedelta(minutes=5),
-                args=[trade, campaign]
+                args=[bot, trade, campaign]
             )
 
         # 4. Promotional Post (10 mins after Trade 2)
@@ -120,7 +122,11 @@ async def execute_trade(bot: Bot, trade_num: int) -> None:
             )
 
     except Exception as exc:
-        logger.error(f"[scheduler] Trade execution failed: {exc}")
+        logger.error(f"[scheduler] Trade {trade_num} execution failed: {exc}")
+        await notifier.notify_red_error(
+            bot,
+            f"Trade {trade_num} failed to fire and was *skipped entirely*.\n\nError: `{exc}`\n\nCheck the log for details."
+        )
 
 
 async def close_trade_stage(bot: Bot, trade: dict, stage: str) -> None:
@@ -128,13 +134,21 @@ async def close_trade_stage(bot: Bot, trade: dict, stage: str) -> None:
         # Re-fetch trade to ensure it wasn't manually cleared
         active = repo.get_active_trade(trade["pair"])
         if not active or active["id"] != trade["id"]:
+            # Trade was cleared manually — this is expected, not an error
+            await notifier.notify_soft_error(
+                bot,
+                f"{stage} close for {trade['pair']} was skipped — the trade was already cleared or replaced."
+            )
             return
 
-        price = trade[stage.lower()]
+        price = trade.get(stage.lower())
+        if price is None:
+            await notifier.notify_red_error(bot, f"Could not find price key `{stage.lower()}` in trade dict for {trade['pair']}. Stage skipped.")
+            return
+
         repo.update_trade_stage(trade["id"], stage)
         repo.update_trade_price(trade["id"], price)
         
-        # If TP3, fully close it
         if stage == "TP3":
             repo.close_trade(trade["id"], price, stage)
             repo.increment_win_streak()
@@ -149,9 +163,10 @@ async def close_trade_stage(bot: Bot, trade: dict, stage: str) -> None:
         })
     except Exception as exc:
         logger.error(f"[scheduler] Close trade stage {stage} failed: {exc}")
+        await notifier.notify_red_error(bot, f"{stage} close for {trade['pair']} crashed: `{exc}`")
 
 
-async def process_flip_update(trade: dict, campaign: dict) -> None:
+async def process_flip_update(bot: Bot, trade: dict, campaign: dict) -> None:
     """Calculate compounding profit and publish flip update."""
     try:
         from core.flip.engine import compute_flip_lot, should_end_campaign
@@ -193,6 +208,7 @@ async def process_flip_update(trade: dict, campaign: dict) -> None:
             
     except Exception as exc:
         logger.error(f"[scheduler] Flip update failed: {exc}")
+        await notifier.notify_red_error(bot, f"Flip Campaign update crashed: `{exc}`")
 
 
 async def post_promotion(bot: Bot) -> None:
@@ -246,7 +262,9 @@ async def _post_single_testimonial(bot: Bot, index: int) -> None:
 async def post_weekly_report(bot: Bot) -> None:
     try:
         stats = repo.get_weekly_stats()
-        if stats["total"] == 0: return
+        if stats["total"] == 0:
+            await notifier.notify_soft_error(bot, "Weekly Report skipped because there were 0 trades this week.")
+            return
 
         win_rate = stats["win_rate"]
         if win_rate >= 80: verdict = "🔥 *INSANE week! VIPs are printing.*"
@@ -264,50 +282,123 @@ async def post_weekly_report(bot: Bot) -> None:
             f"🔐 _Stay locked in. Next week is going to be even bigger._ 🚀"
         )
         await bot.send_message(chat_id=CHANNEL_ID, text=report, parse_mode=ParseMode.MARKDOWN)
+        logger.info("[scheduler] Weekly report posted.")
     except Exception as exc:
         logger.error(f"[scheduler] Weekly report failed: {exc}")
+        await notifier.notify_red_error(bot, f"Weekly Report crashed and was not posted: `{exc}`")
 
+
+async def post_weekend_motivation(bot: Bot) -> None:
+    try:
+        promo = _get_random_json(PROMOTIONS_FILE)
+        if not promo: return
+        settings = repo.get_settings()
+        admin_contact = settings.get("admin_contact", "@MisterTrade")
+        text = f"🔥 *Weekend Motivation*\n\n{promo}".replace("{{admin_contact}}", admin_contact)
+        await bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode=ParseMode.MARKDOWN)
+    except Exception as exc:
+        logger.error(f"[scheduler] Weekend motivation failed: {exc}")
+        await notifier.notify_red_error(bot, f"Weekend motivation failed: {exc}")
+
+async def post_sunday_prep(bot: Bot) -> None:
+    try:
+        settings = repo.get_settings()
+        admin_contact = settings.get("admin_contact", "@MisterTrade")
+        text = (
+            "⏳ *Get ready for tomorrow trading*\n\n"
+            "We have been analyzing EUR/USD all weekend and the setups are looking perfect. "
+            "Can't wait to trade and make money... you have to be part of us.\n\n"
+            f"Message {admin_contact} to get ready."
+        )
+        await bot.send_message(chat_id=CHANNEL_ID, text=text, parse_mode=ParseMode.MARKDOWN)
+    except Exception as exc:
+        logger.error(f"[scheduler] Sunday prep failed: {exc}")
+        await notifier.notify_red_error(bot, f"Sunday prep failed: {exc}")
 
 # ==============================================================
 # Initialization & Rush Mode
 # ==============================================================
 
-def start_scheduler(bot: Bot) -> None:
-    # 1. Register Daily Jobs
-    scheduler.add_job(post_daily_news, trigger="cron", hour=8, minute=0, id="news", kwargs={"bot": bot}, replace_existing=True)
-    
-    # Trades with 2-hour jitter (random delay 0-7200 seconds)
-    scheduler.add_job(execute_trade, trigger="cron", hour=9, minute=0, jitter=7200, id="trade1", kwargs={"bot": bot, "trade_num": 1}, replace_existing=True)
-    scheduler.add_job(execute_trade, trigger="cron", hour=12, minute=0, jitter=7200, id="trade2", kwargs={"bot": bot, "trade_num": 2}, replace_existing=True)
-    scheduler.add_job(execute_trade, trigger="cron", hour=16, minute=0, jitter=7200, id="trade3", kwargs={"bot": bot, "trade_num": 3}, replace_existing=True)
-    
-    # Testimonials at 14:30
-    scheduler.add_job(trigger_testimonial_bomb, trigger="cron", hour=14, minute=30, id="testimonials", kwargs={"bot": bot}, replace_existing=True)
-    
-    # Weekly Report: Saturday 20:00 UTC
-    scheduler.add_job(post_weekly_report, trigger="cron", day_of_week="sat", hour=20, minute=0, id="report", kwargs={"bot": bot}, replace_existing=True)
-
-    # 2. RUSH MODE: Catch up if bot restarted and missed trades
+def get_schedule_text() -> str:
+    """Helper to return a string of the upcoming scheduled jobs and their times."""
+    jobs = scheduler.get_jobs()
+    if not jobs:
+        return "No jobs scheduled."
+        
     now = datetime.now(timezone.utc)
-    # Check if we should have fired trades based on the hour:
-    # Trade 1 by 11:00 UTC (jitter up to 11:00)
-    # Trade 2 by 14:00 UTC
-    # Trade 3 by 18:00 UTC
-    trades_today = repo.count_trades_today()
-    expected = 0
-    if now.hour >= 11: expected = 1
-    if now.hour >= 14: expected = 2
-    if now.hour >= 18: expected = 3
+    lines = []
     
-    if trades_today < expected:
-        catch_up_needed = expected - trades_today
-        logger.warning(f"[scheduler] Rush Mode: Missed {catch_up_needed} trades today. Firing catch-up in 30 seconds.")
-        scheduler.add_job(
-            execute_trade,
-            trigger="date",
-            run_date=now + timedelta(seconds=30),
-            args=[bot, trades_today + 1]
-        )
+    sorted_jobs = [j for j in jobs if j.next_run_time]
+    sorted_jobs.sort(key=lambda j: j.next_run_time)
+    
+    for job in sorted_jobs:
+        delta = job.next_run_time - now
+        hours, remainder = divmod(int(delta.total_seconds()), 3600)
+        minutes, _ = divmod(remainder, 60)
+        
+        name = job.id.replace("_", " ").title()
+        if "Trade" in name: emoji = "📈"
+        elif "News" in name: emoji = "📰"
+        elif "Testimonial" in name: emoji = "💬"
+        elif "Report" in name: emoji = "📊"
+        elif "Motivation" in name: emoji = "🔥"
+        elif "Prep" in name: emoji = "⏳"
+        else: emoji = "⏱️"
+            
+        time_str = f"in {hours}h {minutes}m" if hours > 0 else f"in {minutes}m"
+        if delta.total_seconds() < 0:
+            time_str = "Running now..."
+            
+        lines.append(f"{emoji} {name}: {time_str}")
+        
+    return "📅 *Today's Itinerary:*\n\n" + "\n".join(lines)
 
-    scheduler.start()
-    logger.info("[scheduler] Phase 9 APScheduler started. All marketing events queued.")
+
+def start_scheduler(bot: Bot) -> None:
+    scheduler.remove_all_jobs()
+    
+    market_mode = repo.get_settings().get("market_mode", "FOREX")
+    days = "mon-fri" if market_mode == "FOREX" else "mon-sun"
+
+    # 1. Register Core Jobs
+    scheduler.add_job(post_daily_news, trigger="cron", day_of_week=days, hour=8, minute=0, id="news", kwargs={"bot": bot}, replace_existing=True)
+    scheduler.add_job(execute_trade, trigger="cron", day_of_week=days, hour=9, minute=0, jitter=7200, id="trade1", kwargs={"bot": bot, "trade_num": 1}, replace_existing=True)
+    scheduler.add_job(execute_trade, trigger="cron", day_of_week=days, hour=12, minute=0, jitter=7200, id="trade2", kwargs={"bot": bot, "trade_num": 2}, replace_existing=True)
+    scheduler.add_job(execute_trade, trigger="cron", day_of_week=days, hour=16, minute=0, jitter=7200, id="trade3", kwargs={"bot": bot, "trade_num": 3}, replace_existing=True)
+    scheduler.add_job(trigger_testimonial_bomb, trigger="cron", day_of_week=days, hour=14, minute=30, id="testimonials", kwargs={"bot": bot}, replace_existing=True)
+    
+    # Weekly Report: Saturday 19:00 UTC (7 PM)
+    scheduler.add_job(post_weekly_report, trigger="cron", day_of_week="sat", hour=19, minute=0, id="report", kwargs={"bot": bot}, replace_existing=True)
+
+    # 2. Weekend specific jobs for FOREX mode
+    if market_mode == "FOREX":
+        scheduler.add_job(post_weekend_motivation, trigger="cron", day_of_week="sat,sun", hour=9, minute=0, id="weekend_motivation_am", kwargs={"bot": bot}, replace_existing=True)
+        scheduler.add_job(post_weekend_motivation, trigger="cron", day_of_week="sat,sun", hour=17, minute=0, id="weekend_motivation_pm", kwargs={"bot": bot}, replace_existing=True)
+        scheduler.add_job(post_sunday_prep, trigger="cron", day_of_week="sun", hour=19, minute=0, id="sunday_prep", kwargs={"bot": bot}, replace_existing=True)
+
+    # 3. RUSH MODE: Catch up if bot restarted and missed trades (Only run if today matches the schedule)
+    now = datetime.now(timezone.utc)
+    is_weekend = now.weekday() >= 5
+    should_trade_today = (market_mode == "CRYPTO") or (not is_weekend)
+
+    if should_trade_today:
+        trades_today = repo.count_trades_today()
+        expected = 0
+        if now.hour >= 11: expected = 1
+        if now.hour >= 14: expected = 2
+        if now.hour >= 18: expected = 3
+        
+        if trades_today < expected:
+            catch_up_needed = expected - trades_today
+            logger.warning(f"[scheduler] Rush Mode: Missed {catch_up_needed} trades today. Firing catch-up in 30 seconds.")
+            scheduler.add_job(
+                execute_trade,
+                trigger="date",
+                run_date=now + timedelta(seconds=30),
+                args=[bot, trades_today + 1],
+                id="rush_catch_up"
+            )
+
+    if not scheduler.running:
+        scheduler.start()
+    logger.info(f"[scheduler] Started in {market_mode} mode. Jobs queued: {len(scheduler.get_jobs())}")

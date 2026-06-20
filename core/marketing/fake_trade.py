@@ -15,14 +15,14 @@ from providers.price.router import get_current_price
 from core.signals.generator import get_pair_rules
 import data.repository as repo
 
-def generate_fake_trade() -> Dict[str, Any]:
+def generate_fake_trade(forced_pair: str = None, forced_direction: str = None) -> Dict[str, Any]:
     """
-    Selects a random pair and direction, fetches its current price,
+    Selects a random pair and direction (or uses forced), fetches its current price,
     and creates a database entry backdated so that TP1 is exactly
-    the current price.
+    the current price. Applies an organic multiplier so TP1 isn't always 30 pips.
     """
-    pair = random.choice(PAIRS)
-    direction = random.choice(["BUY", "SELL"])
+    pair = forced_pair if forced_pair else random.choice(PAIRS)
+    direction = forced_direction if forced_direction else random.choice(["BUY", "SELL"])
     
     current_price = get_current_price(pair)
     if not current_price:
@@ -32,18 +32,24 @@ def generate_fake_trade() -> Dict[str, Any]:
     if not rules:
         raise ValueError(f"Invalid pair rules for {pair}")
         
+    organic_multiplier = random.uniform(1.0, 1.3)
+    tp1_offset = rules["tp1_offset"] * organic_multiplier
+    tp2_offset = rules["tp2_offset"] * organic_multiplier
+    tp3_offset = rules["tp3_offset"] * organic_multiplier
+    sl_offset = rules["sl_offset"] * organic_multiplier
+        
     if direction == "BUY":
-        entry_price = current_price - rules["tp1_offset"]
-        tp1 = entry_price + rules["tp1_offset"]
-        tp2 = entry_price + rules["tp2_offset"]
-        tp3 = entry_price + rules["tp3_offset"]
-        sl = entry_price - rules["sl_offset"]
+        entry_price = current_price - tp1_offset
+        tp1 = entry_price + tp1_offset
+        tp2 = entry_price + tp2_offset
+        tp3 = entry_price + tp3_offset
+        sl = entry_price - sl_offset
     else:
-        entry_price = current_price + rules["tp1_offset"]
-        tp1 = entry_price - rules["tp1_offset"]
-        tp2 = entry_price - rules["tp2_offset"]
-        tp3 = entry_price - rules["tp3_offset"]
-        sl = entry_price + rules["sl_offset"]
+        entry_price = current_price + tp1_offset
+        tp1 = entry_price - tp1_offset
+        tp2 = entry_price - tp2_offset
+        tp3 = entry_price - tp3_offset
+        sl = entry_price + sl_offset
         
     settings = repo.get_settings()
     lot_size = float(settings.get("lot_size", 0.1))

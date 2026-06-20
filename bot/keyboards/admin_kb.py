@@ -22,7 +22,8 @@ def main_menu_kb() -> InlineKeyboardMarkup:
     keyboard.add(
         InlineKeyboardButton(text="📊 Stats",             callback_data="admin_stats"),
         InlineKeyboardButton(text="⚙️ Settings",          callback_data="admin_settings"),
-        InlineKeyboardButton(text="💬 Testimonials",      callback_data="admin_testimonials"),
+        InlineKeyboardButton(text="🗃️ Content Manager",   callback_data="admin_content"),
+        InlineKeyboardButton(text="📅 View Schedule",     callback_data="admin_schedule"),
         InlineKeyboardButton(text="📈 Force Signal",      callback_data="admin_force"),
         InlineKeyboardButton(text="🗑️ Clear Trades",      callback_data="admin_clear"),
         InlineKeyboardButton(text="🔄 Toggle Trading",    callback_data="admin_toggle"),
@@ -56,8 +57,8 @@ def force_dir_kb(pair: str) -> InlineKeyboardMarkup:
     return keyboard
 
 
-def settings_kb(current_lot: float) -> InlineKeyboardMarkup:
-    """Settings menu (lot size + admin name)."""
+def settings_kb(current_lot: float, market_mode: str) -> InlineKeyboardMarkup:
+    """Settings menu (lot size + admin name + market mode)."""
     keyboard = InlineKeyboardMarkup(row_width=3)
     keyboard.add(
         InlineKeyboardButton(text="5.0"  + (" ✅" if current_lot == 5.0  else ""), callback_data="set_lot_5.0"),
@@ -66,23 +67,22 @@ def settings_kb(current_lot: float) -> InlineKeyboardMarkup:
     )
     keyboard.add(InlineKeyboardButton(text="✏️ Change Admin Name", callback_data="set_admin_name"))
     keyboard.add(InlineKeyboardButton(text="📞 Change Admin Contact", callback_data="set_admin_contact"))
+    
+    toggle_text = "🔄 Mode: FOREX" if market_mode == "FOREX" else "🔄 Mode: CRYPTO"
+    keyboard.add(InlineKeyboardButton(text=toggle_text, callback_data="toggle_market_mode"))
+    
     keyboard.add(InlineKeyboardButton(text="← Back", callback_data="admin_main"))
     return keyboard
 
 
-def testimonials_kb(testimonials: list) -> InlineKeyboardMarkup:
-    """List existing testimonials with delete buttons, plus Add button."""
+def content_manager_kb() -> InlineKeyboardMarkup:
+    """Content Manager menu for updating JSON data."""
     keyboard = InlineKeyboardMarkup(row_width=1)
-    keyboard.add(InlineKeyboardButton(text="➕ Add New Testimonial", callback_data="testimonial_add"))
-    for t in testimonials:
-        # Truncate script preview to 30 chars
-        preview = t["script"][:30].replace("\n", " ") + ("..." if len(t["script"]) > 30 else "")
-        keyboard.add(
-            InlineKeyboardButton(
-                text=f"#{t['id']} {preview}",
-                callback_data=f"testimonial_view_{t['id']}"
-            )
-        )
+    keyboard.add(
+        InlineKeyboardButton(text="📝 Update Names", callback_data="content_update_names"),
+        InlineKeyboardButton(text="💬 Update Conversations", callback_data="content_update_convos"),
+        InlineKeyboardButton(text="📢 Update Promotions", callback_data="content_update_promos"),
+    )
     keyboard.add(InlineKeyboardButton(text="← Back", callback_data="admin_main"))
     return keyboard
 

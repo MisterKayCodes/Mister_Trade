@@ -41,7 +41,9 @@ def _is_admin(user_id: int) -> bool:
 # ==============================================================
 
 class AdminStates(StatesGroup):
-    waiting_for_testimonial = State()  # Waiting for the user to type the script
+    waiting_for_json_names = State()
+    waiting_for_json_convos = State()
+    waiting_for_json_promos = State()
     waiting_for_admin_name  = State()  # Waiting for the user to type the new name
     waiting_for_admin_contact = State()
     waiting_for_flip_start  = State()
@@ -79,6 +81,20 @@ async def cb_main_menu(callback: types.CallbackQuery):
     await callback.message.edit_text(
         "👋 *Mister Trade Admin Panel*\n\nSelect an option below:",
         reply_markup=main_menu_kb(),
+        parse_mode=types.ParseMode.MARKDOWN,
+    )
+    await callback.answer()
+
+async def cb_schedule(callback: types.CallbackQuery):
+    if not _is_admin(callback.from_user.id): return
+    from services.scheduler import get_schedule_text
+    
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    back_kb = InlineKeyboardMarkup().add(InlineKeyboardButton(text="← Back to Admin", callback_data="admin_main"))
+
+    await callback.message.edit_text(
+        get_schedule_text(),
+        reply_markup=back_kb,
         parse_mode=types.ParseMode.MARKDOWN,
     )
     await callback.answer()
@@ -166,13 +182,14 @@ async def cb_settings(callback: types.CallbackQuery):
     current_lot  = float(settings.get("lot_size", 0.1))
     admin_name   = settings.get("admin_name", "Mike")
     admin_contact = settings.get("admin_contact", "@MisterTrade")
+    market_mode  = settings.get("market_mode", "FOREX")
 
     await callback.message.edit_text(
         f"⚙️ *Settings*\n\n"
         f"Admin Name: `{admin_name}`\n"
         f"Admin Contact: `{admin_contact}`\n\n"
         f"Select a default Lot Size:",
-        reply_markup=settings_kb(current_lot),
+        reply_markup=settings_kb(current_lot, market_mode),
         parse_mode=types.ParseMode.MARKDOWN,
     )
     await callback.answer()
@@ -184,14 +201,40 @@ async def cb_set_lot(callback: types.CallbackQuery):
     repo.update_setting("lot_size", new_lot)
     settings = repo.get_settings()
     admin_name = settings.get("admin_name", "Mike")
+    market_mode = settings.get("market_mode", "FOREX")
     await callback.message.edit_text(
         f"⚙️ *Settings*\n\n"
         f"Admin Name: `{admin_name}`\n\n"
         f"✅ Lot size updated to `{new_lot}`.\nSelect a new default Lot Size:",
-        reply_markup=settings_kb(new_lot),
+        reply_markup=settings_kb(new_lot, market_mode),
         parse_mode=types.ParseMode.MARKDOWN,
     )
     await callback.answer("Lot size updated!")
+
+
+async def cb_toggle_market_mode(callback: types.CallbackQuery):
+    if not _is_admin(callback.from_user.id): return
+    
+    settings = repo.get_settings()
+    current_mode = settings.get("market_mode", "FOREX")
+    new_mode = "CRYPTO" if current_mode == "FOREX" else "FOREX"
+    
+    repo.update_setting("market_mode", new_mode)
+    
+    # Reload scheduler
+    from services.scheduler import start_scheduler
+    from bot.setup import bot
+    start_scheduler(bot)
+    
+    current_lot = float(settings.get("lot_size", 0.1))
+    await callback.message.edit_text(
+        f"⚙️ *Settings*\n\n"
+        f"✅ Market Mode changed to `{new_mode}`.\n"
+        f"The scheduler has been successfully reloaded for this mode.",
+        reply_markup=settings_kb(current_lot, new_mode),
+        parse_mode=types.ParseMode.MARKDOWN,
+    )
+    await callback.answer(f"Switched to {new_mode}")
 
 
 # ==============================================================
@@ -244,57 +287,24 @@ async def cb_force_dir(callback: types.CallbackQuery):
         
     # To make the forced signal post to Telegram immediately for UI testing,
     # we artificially set the entry price so that TP1 is exactly the current price.
-    if direction == "BUY":
-        entry_price = price - rules["tp1_offset"]
-        tp1 = entry_price + rules["tp1_offset"]
-        tp2 = entry_price + rules["tp2_offset"]
-        tp3 = entry_price + rules["tp3_offset"]
-        sl = entry_price - rules["sl_offset"]
-    else:
-        entry_price = price + rules["tp1_offset"]
-        tp1 = entry_price - rules["tp1_offset"]
-        tp2 = entry_price - rules["tp2_offset"]
-        tp3 = entry_price - rules["tp3_offset"]
-        sl = entry_price + rules["sl_offset"]
+    from core.marketing.fake_trade import generate_fake_trade
+    try:
+        trade = generate_fake_trade(forced_pair=pair, forced_direction=direction)
+    except Exception as e:
+        await callback.answer(f"❌ Error: {e}", show_alert=True)
+        return
 
-    settings = repo.get_settings()
-    lot_size = float(settings.get("lot_size", 0.1))
-    
-    trade_id = repo.create_trade(
-        pair=pair,
-        direction=direction,
-        entry_price=entry_price,
-        tp1=tp1, tp2=tp2, tp3=tp3, sl=sl,
-        lot_size=lot_size
-    )
-    
-    # Fast forward trade to TP1
-    repo.update_trade_stage(trade_id, "TP1")
-    repo.update_trade_price(trade_id, tp1)
-    repo.mark_trade_posted(trade_id)
-    
     import services.event_bus as event_bus
-    event_bus.publish("SIGNAL_POST", {
-        "id": trade_id,
-        "pair": pair,
-        "direction": direction,
-        "entry": entry_price,
-        "current_price": tp1,
-        "tp1": tp1,
-        "tp2": tp2,
-        "tp3": tp3,
-        "sl": sl,
-        "lot_size": lot_size
-    })
+    event_bus.publish("SIGNAL_POST", trade)
     
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
     back_kb = InlineKeyboardMarkup().add(InlineKeyboardButton(text="← Back to Admin", callback_data="admin_main"))
 
     await callback.message.edit_text(
-        f"✅ *Forced {direction} signal for {pair}!*\n\n"
-        f"Fake Entry: `${entry_price:,.2f}`\n"
-        f"Current Price (TP1): `${tp1:,.2f}`\n"
-        f"SL: `${sl:,.2f}`\n\n"
+        f"✅ *Forced {trade['direction']} signal for {trade['pair']}!*\n\n"
+        f"Fake Entry: `${trade['entry']:,.2f}`\n"
+        f"Current Price (TP1): `${trade['tp1']:,.2f}`\n"
+        f"SL: `${trade['sl']:,.2f}`\n\n"
         f"The screenshot has been instantly generated and posted to the channel!",
         reply_markup=back_kb,
         parse_mode=types.ParseMode.MARKDOWN,
@@ -303,83 +313,73 @@ async def cb_force_dir(callback: types.CallbackQuery):
 
 
 # ==============================================================
-# Testimonial Handlers
+# Content Manager Handlers
 # ==============================================================
 
-async def cb_testimonials(callback: types.CallbackQuery):
+async def cb_content_menu(callback: types.CallbackQuery):
     if not _is_admin(callback.from_user.id): return
-    items = repo.list_testimonials()
+    from bot.keyboards.admin_kb import content_manager_kb
     await callback.message.edit_text(
-        f"💬 *Testimonials* ({len(items)} in pool)\n\n"
-        "Tap one to view/delete, or add a new script below.",
-        reply_markup=testimonials_kb(items),
+        "🗃️ *Content Manager*\n\nSelect which JSON database to update:",
+        reply_markup=content_manager_kb(),
         parse_mode=types.ParseMode.MARKDOWN,
     )
     await callback.answer()
 
-
-async def cb_testimonial_add(callback: types.CallbackQuery, state: FSMContext):
+async def cb_content_update(callback: types.CallbackQuery, state: FSMContext):
     if not _is_admin(callback.from_user.id): return
-    await AdminStates.waiting_for_testimonial.set()
+    target = callback.data.split("_")[2] # names, convos, promos
+    
+    if target == "names":
+        await AdminStates.waiting_for_json_names.set()
+        example = '[\n  "John",\n  "Emma"\n]'
+    elif target == "convos":
+        await AdminStates.waiting_for_json_convos.set()
+        example = '[\n  "THEM: Hello | ME: Hi",\n  "THEM: Thanks | ME: Welcome"\n]'
+    else:
+        await AdminStates.waiting_for_json_promos.set()
+        example = '[\n  "Promo 1 {{admin_contact}}",\n  "Promo 2"\n]'
+        
     await callback.message.answer(
-        "📝 *New Testimonial Script*\n\n"
-        "Type the conversation in pipe-separated format:\n\n"
-        "`THEM: Yo {{admin}} I hit TP3! | ME: Let's go! | THEM: Thanks so much!`\n\n"
-        "⚠️ Max 6 lines. Use `{{admin}}` as a placeholder for your admin name.\n\n"
+        f"📝 *Update {target.capitalize()}*\n\n"
+        f"Send me a valid JSON array of strings. Example:\n"
+        f"`{example}`\n\n"
         "Send /cancel to abort.",
         parse_mode=types.ParseMode.MARKDOWN,
     )
     await callback.answer()
 
-
-async def msg_receive_testimonial(message: types.Message, state: FSMContext):
+async def _handle_json_input(message: types.Message, state: FSMContext, filename: str):
+    import json
+    import os
     if not _is_admin(message.from_user.id):
         await state.finish()
         return
-    script = message.text.strip()
-    if len(script) < 10:
-        await message.reply("❌ Script is too short. Please try again or send /cancel.")
-        return
-    repo.add_testimonial(script)
-    await state.finish()
-    await message.reply(
-        "✅ Testimonial saved to the pool! It will be randomly posted daily at 2:00 PM UTC."
-    )
+        
+    try:
+        data = json.loads(message.text)
+        if not isinstance(data, list) or not all(isinstance(x, str) for x in data):
+            raise ValueError("Input must be a JSON array of strings.")
+            
+        filepath = os.path.join("data", "content", filename)
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+            
+        await state.finish()
+        await message.reply(f"✅ Successfully updated `{filename}` with {len(data)} items!", parse_mode=types.ParseMode.MARKDOWN)
+    except json.JSONDecodeError as e:
+        await message.reply(f"❌ *JSON Parse Error:*\n`{e}`\n\nPlease send a valid JSON array or /cancel.", parse_mode=types.ParseMode.MARKDOWN)
+    except Exception as e:
+        await message.reply(f"❌ *Error:*\n`{e}`\n\nPlease try again or /cancel.", parse_mode=types.ParseMode.MARKDOWN)
 
+async def msg_receive_json_names(message: types.Message, state: FSMContext):
+    await _handle_json_input(message, state, "names.json")
 
-async def cb_testimonial_view(callback: types.CallbackQuery):
-    if not _is_admin(callback.from_user.id): return
-    tid = int(callback.data.split("_")[2])
-    items = repo.list_testimonials()
-    item  = next((t for t in items if t["id"] == tid), None)
-    if not item:
-        await callback.answer("❌ Not found.", show_alert=True)
-        return
-    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-    kb = InlineKeyboardMarkup(row_width=2)
-    kb.add(
-        InlineKeyboardButton(text="🗑️ Delete", callback_data=f"testimonial_del_{tid}"),
-        InlineKeyboardButton(text="← Back",    callback_data="admin_testimonials"),
-    )
-    await callback.message.edit_text(
-        f"*Testimonial #{tid}:*\n\n`{item['script']}`",
-        reply_markup=kb,
-        parse_mode=types.ParseMode.MARKDOWN,
-    )
-    await callback.answer()
-
-
-async def cb_testimonial_delete(callback: types.CallbackQuery):
-    if not _is_admin(callback.from_user.id): return
-    tid = int(callback.data.split("_")[2])
-    repo.delete_testimonial(tid)
-    items = repo.list_testimonials()
-    await callback.message.edit_text(
-        f"✅ Testimonial #{tid} deleted.\n\n💬 *Testimonials* ({len(items)} in pool)",
-        reply_markup=testimonials_kb(items),
-        parse_mode=types.ParseMode.MARKDOWN,
-    )
-    await callback.answer(f"Deleted #{tid}")
+async def msg_receive_json_convos(message: types.Message, state: FSMContext):
+    await _handle_json_input(message, state, "conversations.json")
+    
+async def msg_receive_json_promos(message: types.Message, state: FSMContext):
+    await _handle_json_input(message, state, "promotions.json")
 
 
 # ==============================================================
@@ -621,18 +621,21 @@ def register_handlers(dp: Dispatcher) -> None:
     dp.register_message_handler(msg_receive_admin_name,   state=AdminStates.waiting_for_admin_name)
     dp.register_callback_query_handler(cb_set_admin_contact, lambda c: c.data == "set_admin_contact",  state="*")
     dp.register_message_handler(msg_receive_admin_contact,   state=AdminStates.waiting_for_admin_contact)
+    dp.register_callback_query_handler(cb_toggle_market_mode, lambda c: c.data == "toggle_market_mode")
 
     # Force Signal
     dp.register_callback_query_handler(cb_force_main, lambda c: c.data == "admin_force")
     dp.register_callback_query_handler(cb_force_pair, lambda c: c.data.startswith("force_pair_"))
     dp.register_callback_query_handler(cb_force_dir,  lambda c: c.data.startswith("force_dir_"))
 
-    # Testimonials
-    dp.register_callback_query_handler(cb_testimonials,       lambda c: c.data == "admin_testimonials",         state="*")
-    dp.register_callback_query_handler(cb_testimonial_add,    lambda c: c.data == "testimonial_add",            state="*")
-    dp.register_callback_query_handler(cb_testimonial_view,   lambda c: c.data.startswith("testimonial_view_"), state="*")
-    dp.register_callback_query_handler(cb_testimonial_delete, lambda c: c.data.startswith("testimonial_del_"),  state="*")
-    dp.register_message_handler(msg_receive_testimonial,      state=AdminStates.waiting_for_testimonial)
+    dp.register_callback_query_handler(cb_schedule,       lambda c: c.data == "admin_schedule")
+    
+    # Content Manager
+    dp.register_callback_query_handler(cb_content_menu,   lambda c: c.data == "admin_content",         state="*")
+    dp.register_callback_query_handler(cb_content_update, lambda c: c.data.startswith("content_update_"), state="*")
+    dp.register_message_handler(msg_receive_json_names,   state=AdminStates.waiting_for_json_names)
+    dp.register_message_handler(msg_receive_json_convos,  state=AdminStates.waiting_for_json_convos)
+    dp.register_message_handler(msg_receive_json_promos,  state=AdminStates.waiting_for_json_promos)
 
     # Test Mode
     dp.register_callback_query_handler(cb_test_mode_menu, lambda c: c.data == "admin_test_mode")

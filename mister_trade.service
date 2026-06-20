@@ -1,0 +1,46 @@
+[Unit]
+Description=Mister Trade Telegram Bot
+Documentation=https://github.com/MisterKayCodes/Mister_Trade
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# --- Identity ---
+User=root
+Group=root
+
+# --- Working Directory ---
+WorkingDirectory=/root/Mister_Trade
+
+# --- Startup ---
+# Uses the venv Python so all packages are available
+ExecStart=/root/Mister_Trade/venv/bin/python main.py
+
+# --- Restart Policy ---
+# If the bot crashes for any reason, systemd will restart it after 5 seconds.
+# It will keep trying. The bot will NEVER stay down unintentionally.
+Restart=always
+RestartSec=5
+
+# --- Logging ---
+# Bot logs go to the systemd journal. View them with:
+#   journalctl -u mister_trade -f        (live tail)
+#   journalctl -u mister_trade -n 100    (last 100 lines)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mister_trade
+
+# --- Environment ---
+# If your .env file is in the project root, Python-dotenv will load it automatically.
+# If you prefer to set them here directly, uncomment and fill in:
+# Environment="BOT_TOKEN=your_token_here"
+# Environment="CHANNEL_ID=-100xxxxxxxxx"
+# Environment="ADMIN_IDS=123456789"
+
+# --- Safety Limits ---
+# Prevents the bot from eating all memory if something goes wrong
+MemoryMax=512M
+
+[Install]
+# Starts automatically when the VPS boots
+WantedBy=multi-user.target
