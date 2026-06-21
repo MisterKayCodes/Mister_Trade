@@ -22,6 +22,7 @@ CREATE_SETTINGS = """
 CREATE TABLE IF NOT EXISTS settings (
     id                  INTEGER PRIMARY KEY CHECK (id = 1),
     mode                TEXT    DEFAULT 'crypto',
+    market_mode         TEXT    DEFAULT 'crypto',
     trading_enabled     INTEGER DEFAULT 1,
     pip_threshold       REAL    DEFAULT 300,
     max_trades_per_day  INTEGER DEFAULT 3,
@@ -125,12 +126,12 @@ CREATE TABLE IF NOT EXISTS flip_campaigns (
 # ------------------------------------------------------------------
 SEED_SETTINGS = """
 INSERT OR IGNORE INTO settings (
-    id, mode, trading_enabled, pip_threshold, max_trades_per_day,
+    id, mode, market_mode, trading_enabled, pip_threshold, max_trades_per_day,
     starting_balance, current_balance, risk_percent, lot_size,
     win_streak, total_wins, total_losses, last_loss_date, admin_name, admin_contact
 )
 VALUES (
-    1, 'crypto', 1, 300, 3,
+    1, 'crypto', 'crypto', 1, 300, 3,
     10000, 10000, 1.0, 0.1,
     0, 0, 0, NULL, 'Mike', '@MisterTrade'
 )
