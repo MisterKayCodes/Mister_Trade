@@ -28,6 +28,7 @@ hti.browser.flags = [
     '--disable-gpu',
     '--hide-scrollbars',
     '--mute-audio',
+    '--no-sandbox',
     '--default-background-color=00000000'
 ]
 

@@ -50,6 +50,7 @@ hti.browser.flags = [
     '--disable-gpu',
     '--hide-scrollbars',
     '--mute-audio',
+    '--no-sandbox',
     '--default-background-color=00000000'
 ]
 
@@ -196,7 +197,7 @@ def render_testimonial(script: str, admin_name: str, filename: str = "testimonia
     hti_instance = Html2Image(size=(400, canvas_height))
     hti_instance.browser.flags = [
         '--headless', '--disable-gpu', '--hide-scrollbars',
-        '--mute-audio', '--default-background-color=00000000'
+        '--mute-audio', '--no-sandbox', '--default-background-color=00000000'
     ]
     hti_instance.output_path = OUTPUT_DIR
     hti_instance.screenshot(html_str=html, save_as=filename)
