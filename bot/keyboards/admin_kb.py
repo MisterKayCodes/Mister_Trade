@@ -38,9 +38,17 @@ def main_menu_kb() -> InlineKeyboardMarkup:
 
 def force_pair_kb() -> InlineKeyboardMarkup:
     """Select which pair to force."""
-    from config import PAIRS
+    import data.repository as repo
+    settings = repo.get_settings()
+    market_mode = str(settings.get("market_mode", "FOREX")).strip().upper()
+    
+    if market_mode == "CRYPTO":
+        from config import CRYPTO_PAIRS as active_pairs
+    else:
+        from config import FOREX_PAIRS as active_pairs
+        
     keyboard = InlineKeyboardMarkup(row_width=2)
-    buttons = [InlineKeyboardButton(text=p, callback_data=f"force_pair_{p}") for p in PAIRS]
+    buttons = [InlineKeyboardButton(text=p, callback_data=f"force_pair_{p}") for p in active_pairs]
     keyboard.add(*buttons)
     keyboard.add(InlineKeyboardButton(text="← Back", callback_data="admin_main"))
     return keyboard

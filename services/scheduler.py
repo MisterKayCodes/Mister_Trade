@@ -368,7 +368,7 @@ def get_schedule_text() -> str:
 def start_scheduler(bot: Bot) -> None:
     scheduler.remove_all_jobs()
     
-    market_mode = repo.get_settings().get("market_mode", "FOREX")
+    market_mode = str(repo.get_settings().get("market_mode", "FOREX")).strip().upper()
     days = "mon-fri" if market_mode == "FOREX" else "mon-sun"
 
     # 1. Register Core Jobs

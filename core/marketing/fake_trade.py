@@ -26,7 +26,7 @@ def generate_fake_trade(forced_pair: str = None, forced_direction: str = None) -
     if forced_pair:
         pair = forced_pair
     else:
-        market_mode = settings.get("market_mode", "FOREX")
+        market_mode = str(settings.get("market_mode", "FOREX")).strip().upper()
         pair = random.choice(CRYPTO_PAIRS) if market_mode == "CRYPTO" else random.choice(FOREX_PAIRS)
         
     direction = forced_direction if forced_direction else random.choice(["BUY", "SELL"])
