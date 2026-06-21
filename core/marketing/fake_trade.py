@@ -10,7 +10,7 @@ Creates backdated "winning" trades out of thin air.
 import random
 from typing import Dict, Any
 
-from config import PAIRS
+from config import CRYPTO_PAIRS, FOREX_PAIRS
 from providers.price.router import get_current_price
 from core.signals.generator import get_pair_rules
 import data.repository as repo
@@ -21,7 +21,14 @@ def generate_fake_trade(forced_pair: str = None, forced_direction: str = None) -
     and creates a database entry backdated so that TP1 is exactly
     the current price. Applies an organic multiplier so TP1 isn't always 30 pips.
     """
-    pair = forced_pair if forced_pair else random.choice(PAIRS)
+    settings = repo.get_settings()
+    
+    if forced_pair:
+        pair = forced_pair
+    else:
+        market_mode = settings.get("market_mode", "FOREX")
+        pair = random.choice(CRYPTO_PAIRS) if market_mode == "CRYPTO" else random.choice(FOREX_PAIRS)
+        
     direction = forced_direction if forced_direction else random.choice(["BUY", "SELL"])
     
     current_price = get_current_price(pair)
@@ -51,7 +58,6 @@ def generate_fake_trade(forced_pair: str = None, forced_direction: str = None) -
         tp3 = entry_price - tp3_offset
         sl = entry_price + sl_offset
         
-    settings = repo.get_settings()
     lot_size = float(settings.get("lot_size", 0.1))
     
     trade_id = repo.create_trade(

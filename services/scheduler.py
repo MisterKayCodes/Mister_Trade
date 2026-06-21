@@ -123,9 +123,20 @@ async def execute_trade(bot: Bot, trade_num: int) -> None:
 
     except Exception as exc:
         logger.error(f"[scheduler] Trade {trade_num} execution failed: {exc}")
+        
+        # Reschedule to try again in 15 minutes
+        retry_time = datetime.now(timezone.utc) + timedelta(minutes=15)
+        scheduler.add_job(
+            execute_trade,
+            trigger="date",
+            run_date=retry_time,
+            args=[bot, trade_num],
+            id=f"trade{trade_num}_retry_{int(retry_time.timestamp())}"
+        )
+        
         await notifier.notify_red_error(
             bot,
-            f"Trade {trade_num} failed to fire and was *skipped entirely*.\n\nError: `{exc}`\n\nCheck the log for details."
+            f"Trade {trade_num} failed to fire. *Retrying in 15 minutes*.\n\nError: `{exc}`\n\nCheck the log for details."
         )
 
 
