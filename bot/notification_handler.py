@@ -15,6 +15,7 @@ Rules:
 """
 
 import os
+import io
 import random
 import asyncio
 import logging
@@ -75,14 +76,18 @@ async def send_signal(bot: Bot, payload: dict) -> None:
         filename = f"signal_{pair}_{payload.get('trade_id', 'new')}.png"
         image_path = await asyncio.to_thread(render_signal_image, payload, filename)
 
+        # Read into memory first — avoids Snap/AppArmor file-lock race conditions
         with open(image_path, "rb") as f:
-            photo = InputFile(f, filename=filename)
-            await bot.send_photo(
-                chat_id=CHANNEL_ID,
-                photo=photo,
-                caption=caption,
-                parse_mode=ParseMode.MARKDOWN,
-            )
+            image_bytes = io.BytesIO(f.read())
+        image_bytes.name = filename
+
+        photo = InputFile(image_bytes, filename=filename)
+        await bot.send_photo(
+            chat_id=CHANNEL_ID,
+            photo=photo,
+            caption=caption,
+            parse_mode=ParseMode.MARKDOWN,
+        )
         logger.info(f"[notification] Signal image posted for {pair} {direction}")
 
     except Exception as exc:
@@ -219,14 +224,18 @@ async def send_flip_update(bot: Bot, payload: dict) -> None:
             filename = f"flip_{pair}_{count}.png"
             image_path = await asyncio.to_thread(render_signal_image, image_payload, filename)
 
+            # Read into memory first — avoids Snap/AppArmor file-lock race conditions
             with open(image_path, "rb") as f:
-                photo = InputFile(f, filename=filename)
-                await bot.send_photo(
-                    chat_id=CHANNEL_ID,
-                    photo=photo,
-                    caption=text,
-                    parse_mode=ParseMode.MARKDOWN,
-                )
+                image_bytes = io.BytesIO(f.read())
+            image_bytes.name = filename
+
+            photo = InputFile(image_bytes, filename=filename)
+            await bot.send_photo(
+                chat_id=CHANNEL_ID,
+                photo=photo,
+                caption=text,
+                parse_mode=ParseMode.MARKDOWN,
+            )
         except Exception as exc:
             logger.error(f"[notification] Failed to post flip update: {exc}")
         finally:
