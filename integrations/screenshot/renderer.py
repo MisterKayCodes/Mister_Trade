@@ -22,6 +22,7 @@ from html2image import Html2Image
 from typing import Dict, Any
 
 hti = Html2Image(size=(400, 350))
+hti.browser.executable = '/usr/bin/google-chrome'
 
 hti.browser.flags = [
     '--headless',

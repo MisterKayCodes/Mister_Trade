@@ -45,6 +45,7 @@ HEIGHT_PER_BUBBLE = 75
 
 
 hti = Html2Image()
+hti.browser.executable = '/usr/bin/google-chrome'
 hti.browser.flags = [
     '--headless',
     '--disable-gpu',
@@ -195,6 +196,7 @@ def render_testimonial(script: str, admin_name: str, filename: str = "testimonia
     hti.browser.flags[0] = '--headless'  # ensure flag intact
 
     hti_instance = Html2Image(size=(400, canvas_height))
+    hti_instance.browser.executable = '/usr/bin/google-chrome'
     hti_instance.browser.flags = [
         '--headless', '--disable-gpu', '--hide-scrollbars',
         '--mute-audio', '--no-sandbox', '--default-background-color=00000000'
