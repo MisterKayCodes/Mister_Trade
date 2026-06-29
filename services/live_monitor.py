@@ -187,7 +187,8 @@ async def _process_trade(trade: dict) -> None:
             "lot_size":    lot_size,
             "loss":        loss_amount,
         })
-        logger.info(f"[monitor] SL HIT — {pair} {direction} closed at {current:.5f if is_forex else current:.2f}")
+        fmt_current = f"{current:.5f}" if is_forex else f"{current:.2f}"
+        logger.info(f"[monitor] SL HIT — {pair} {direction} closed at {fmt_current}")
         return
 
     # ----------------------------------------------------------------
@@ -215,7 +216,8 @@ async def _process_trade(trade: dict) -> None:
             "lot_size":    lot_size,
             "high_watermark": watermark,
         })
-        logger.info(f"[monitor] BREAK EVEN — {pair} {direction} reversed to entry {entry:.5f if is_forex else entry:.2f}")
+        fmt_entry = f"{entry:.5f}" if is_forex else f"{entry:.2f}"
+        logger.info(f"[monitor] BREAK EVEN — {pair} {direction} reversed to entry {fmt_entry}")
         return
 
     logger.debug(f"[monitor] {pair} {direction} | current={current} | stage={stage} | watermark={watermark}")
