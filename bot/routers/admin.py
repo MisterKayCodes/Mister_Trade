@@ -21,7 +21,8 @@ from aiogram.dispatcher.filters.state import State, StatesGroup
 from config import ADMIN_IDS
 from bot.keyboards.admin_kb import (
     main_menu_kb, force_pair_kb, force_dir_kb,
-    settings_kb, testimonials_kb, flip_kb
+    settings_kb, testimonials_kb, flip_kb,
+    copier_channels_kb, copier_channel_detail_kb
 )
 import data.repository as repo
 from providers.price.router import get_current_price
@@ -41,13 +42,21 @@ def _is_admin(user_id: int) -> bool:
 # ==============================================================
 
 class AdminStates(StatesGroup):
-    waiting_for_json_names = State()
-    waiting_for_json_convos = State()
-    waiting_for_json_promos = State()
-    waiting_for_admin_name  = State()  # Waiting for the user to type the new name
-    waiting_for_admin_contact = State()
-    waiting_for_flip_start  = State()
-    waiting_for_flip_target = State()
+    waiting_for_json_names     = State()
+    waiting_for_json_convos    = State()
+    waiting_for_json_promos    = State()
+    waiting_for_admin_name     = State()
+    waiting_for_admin_contact  = State()
+    waiting_for_flip_start     = State()
+    waiting_for_flip_target    = State()
+    # Copier Channel add flow
+    copier_waiting_channel_id  = State()
+    copier_waiting_name        = State()
+    copier_waiting_tone        = State()
+    copier_waiting_risk_type   = State()
+    copier_waiting_risk_value  = State()
+    copier_waiting_max_trades  = State()
+    copier_waiting_admin_name  = State()
 
 
 # ==============================================================
@@ -599,6 +608,240 @@ async def cb_flip_stop(callback: types.CallbackQuery):
 
 
 # ==============================================================
+# Copier Channels Handlers
+# ==============================================================
+
+async def cb_copiers_menu(callback: types.CallbackQuery):
+    if not _is_admin(callback.from_user.id): return
+    channels = repo.get_all_copier_channels()
+
+    if channels:
+        lines = []
+        for ch in channels:
+            status = "✅" if ch["active"] else "⏸️"
+            lines.append(f"{status} *{ch['name']}* | Tone: `{ch['tone']}` | Risk: `{ch['risk_type']}` `{ch['risk_value']}`")
+        body = "\n".join(lines)
+    else:
+        body = "_No channels registered yet. Add your first one!_"
+
+    from bot.keyboards.admin_kb import copier_channels_kb
+    await callback.message.edit_text(
+        f"📡 *Copier Channels*\n\n{body}",
+        reply_markup=copier_channels_kb(channels),
+        parse_mode=types.ParseMode.MARKDOWN,
+    )
+    await callback.answer()
+
+
+async def cb_copier_view(callback: types.CallbackQuery):
+    if not _is_admin(callback.from_user.id): return
+    # data: copier_view_<channel_id>
+    channel_id = callback.data[len("copier_view_"):]
+    ch = repo.get_copier_channel_by_id(channel_id)
+    if not ch:
+        await callback.answer("Channel not found.", show_alert=True)
+        return
+
+    from bot.keyboards.admin_kb import copier_channel_detail_kb
+    text = (
+        f"📡 *{ch['name']}*\n\n"
+        f"Channel ID: `{ch['channel_id']}`\n"
+        f"Tone: `{ch['tone']}`\n"
+        f"Risk Type: `{ch['risk_type']}`\n"
+        f"Risk Value: `{ch['risk_value']}`\n"
+        f"Max Trades/Day: `{ch['max_trades_per_day']}`\n"
+        f"Admin Name: `{ch['admin_name']}`\n"
+        f"Status: {'✅ Active' if ch['active'] else '⏸️ Paused'}"
+    )
+    await callback.message.edit_text(
+        text,
+        reply_markup=copier_channel_detail_kb(channel_id, bool(ch["active"])),
+        parse_mode=types.ParseMode.MARKDOWN,
+    )
+    await callback.answer()
+
+
+async def cb_copier_toggle(callback: types.CallbackQuery):
+    if not _is_admin(callback.from_user.id): return
+    channel_id = callback.data[len("copier_toggle_"):]
+    new_state  = repo.toggle_copier_channel(channel_id)
+    status_str = "Active ✅" if new_state else "Paused ⏸️"
+    await callback.answer(f"Channel is now {status_str}")
+    # Refresh the view
+    ch = repo.get_copier_channel_by_id(channel_id)
+    if ch:
+        from bot.keyboards.admin_kb import copier_channel_detail_kb
+        text = (
+            f"📡 *{ch['name']}*\n\n"
+            f"Channel ID: `{ch['channel_id']}`\n"
+            f"Tone: `{ch['tone']}`\n"
+            f"Status: {status_str}"
+        )
+        await callback.message.edit_text(
+            text,
+            reply_markup=copier_channel_detail_kb(channel_id, new_state),
+            parse_mode=types.ParseMode.MARKDOWN,
+        )
+
+
+async def cb_copier_delete(callback: types.CallbackQuery):
+    if not _is_admin(callback.from_user.id): return
+    channel_id = callback.data[len("copier_delete_"):]
+    repo.delete_copier_channel(channel_id)
+    channels = repo.get_all_copier_channels()
+    from bot.keyboards.admin_kb import copier_channels_kb
+    await callback.message.edit_text(
+        "📡 *Copier Channels*\n\n✅ Channel removed.",
+        reply_markup=copier_channels_kb(channels),
+        parse_mode=types.ParseMode.MARKDOWN,
+    )
+    await callback.answer("Channel deleted.")
+
+
+async def cb_copier_add(callback: types.CallbackQuery, state: FSMContext):
+    if not _is_admin(callback.from_user.id): return
+    await AdminStates.copier_waiting_channel_id.set()
+    await callback.message.answer(
+        "📡 *Add New Copier Channel*\n\n"
+        "Step 1/7: Send the *Telegram Channel ID* for the channel the bot should post to.\n"
+        "_(e.g. `-1001234567890` — you can get this by forwarding a message from the channel to @userinfobot)_\n\n"
+        "Send /cancel to abort.",
+        parse_mode=types.ParseMode.MARKDOWN,
+    )
+    await callback.answer()
+
+
+async def msg_copier_channel_id(message: types.Message, state: FSMContext):
+    if not _is_admin(message.from_user.id): return
+    cid = message.text.strip()
+    await state.update_data(channel_id=cid)
+    await AdminStates.copier_waiting_name.set()
+    await message.reply(
+        "✅ Got it!\n\n"
+        "Step 2/7: Enter a *display name* for this channel (e.g. `BTC Signals Channel`).\n"
+        "Send /cancel to abort.",
+        parse_mode=types.ParseMode.MARKDOWN,
+    )
+
+
+async def msg_copier_name(message: types.Message, state: FSMContext):
+    if not _is_admin(message.from_user.id): return
+    await state.update_data(name=message.text.strip())
+    await AdminStates.copier_waiting_tone.set()
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    tone_kb = InlineKeyboardMarkup(row_width=1)
+    tone_kb.add(
+        InlineKeyboardButton(text="🔥 HYPE  — Energetic, loud, celebratory",     callback_data="copier_tone_HYPE"),
+        InlineKeyboardButton(text="🧊 STOIC — Calm, minimal, no emojis",          callback_data="copier_tone_STOIC"),
+        InlineKeyboardButton(text="💼 PROFESSIONAL — Balanced, clean, confident", callback_data="copier_tone_PROFESSIONAL"),
+    )
+    await message.reply(
+        "Step 3/7: Select the *tone* for this channel's posts:",
+        reply_markup=tone_kb,
+        parse_mode=types.ParseMode.MARKDOWN,
+    )
+
+
+async def cb_copier_tone(callback: types.CallbackQuery, state: FSMContext):
+    if not _is_admin(callback.from_user.id): return
+    tone = callback.data.split("_")[2]
+    await state.update_data(tone=tone)
+    await AdminStates.copier_waiting_risk_type.set()
+
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    rtype_kb = InlineKeyboardMarkup(row_width=1)
+    rtype_kb.add(
+        InlineKeyboardButton(text="💵 USD_RISK — Fixed dollar amount risked per trade", callback_data="copier_rtype_USD_RISK"),
+        InlineKeyboardButton(text="📊 LOT_SIZE — Fixed lot size per trade",              callback_data="copier_rtype_LOT_SIZE"),
+    )
+    await callback.message.edit_text(
+        f"✅ Tone set to *{tone}*.\n\n"
+        "Step 4/7: How should risk be defined for this channel?",
+        reply_markup=rtype_kb,
+        parse_mode=types.ParseMode.MARKDOWN,
+    )
+    await callback.answer()
+
+
+async def cb_copier_risk_type(callback: types.CallbackQuery, state: FSMContext):
+    if not _is_admin(callback.from_user.id): return
+    risk_type = callback.data.split("_", 2)[2]
+    await state.update_data(risk_type=risk_type)
+    await AdminStates.copier_waiting_risk_value.set()
+
+    prompt = (
+        "Step 5/7: Enter the *risk value*.\n"
+        "_(e.g. `50` means $50 USD risked per trade if USD_RISK, or `0.5` lot if LOT_SIZE)_\n\n"
+        "Send /cancel to abort."
+    )
+    await callback.message.answer(prompt, parse_mode=types.ParseMode.MARKDOWN)
+    await callback.answer()
+
+
+async def msg_copier_risk_value(message: types.Message, state: FSMContext):
+    if not _is_admin(message.from_user.id): return
+    try:
+        val = float(message.text.strip())
+        await state.update_data(risk_value=val)
+        await AdminStates.copier_waiting_max_trades.set()
+        await message.reply(
+            "Step 6/7: Enter the *max number of signals* to post per day for this channel.\n"
+            "_(e.g. `5` means only the first 5 signals of the day are forwarded)_\n\n"
+            "Send /cancel to abort.",
+            parse_mode=types.ParseMode.MARKDOWN,
+        )
+    except ValueError:
+        await message.reply("❌ Enter a valid number (e.g. `50` or `0.5`). Try again or /cancel.")
+
+
+async def msg_copier_max_trades(message: types.Message, state: FSMContext):
+    if not _is_admin(message.from_user.id): return
+    try:
+        max_t = int(message.text.strip())
+        await state.update_data(max_trades_per_day=max_t)
+        await AdminStates.copier_waiting_admin_name.set()
+        await message.reply(
+            "Step 7/7: Enter the *admin name* to appear in this channel's posts.\n"
+            "_(e.g. `Antop`, `Mike`, `Alex`)_\n\n"
+            "Send /cancel to abort.",
+            parse_mode=types.ParseMode.MARKDOWN,
+        )
+    except ValueError:
+        await message.reply("❌ Enter a whole number (e.g. `5`). Try again or /cancel.")
+
+
+async def msg_copier_admin_name(message: types.Message, state: FSMContext):
+    if not _is_admin(message.from_user.id): return
+    admin_name = message.text.strip()
+    data = await state.get_data()
+
+    repo.create_copier_channel(
+        channel_id=data["channel_id"],
+        name=data["name"],
+        tone=data["tone"],
+        risk_type=data["risk_type"],
+        risk_value=data["risk_value"],
+        max_trades_per_day=data["max_trades_per_day"],
+        admin_name=admin_name,
+        owner_user_id=message.from_user.id,
+    )
+    await state.finish()
+
+    await message.reply(
+        f"✅ *Copier Channel Added!*\n\n"
+        f"📡 Name: *{data['name']}*\n"
+        f"Channel ID: `{data['channel_id']}`\n"
+        f"Tone: `{data['tone']}`\n"
+        f"Risk: `{data['risk_type']}` — `{data['risk_value']}`\n"
+        f"Max Trades/Day: `{data['max_trades_per_day']}`\n"
+        f"Admin Name: `{admin_name}`\n\n"
+        f"_The bot will now forward signals to this channel automatically._",
+        parse_mode=types.ParseMode.MARKDOWN,
+    )
+
+
+# ==============================================================
 # Registration (v2 pattern — called from bot/setup.py)
 # ==============================================================
 
@@ -650,3 +893,17 @@ def register_handlers(dp: Dispatcher) -> None:
     dp.register_callback_query_handler(cb_flip_stop,  lambda c: c.data == "flip_stop")
     dp.register_message_handler(msg_flip_start,  state=AdminStates.waiting_for_flip_start)
     dp.register_message_handler(msg_flip_target, state=AdminStates.waiting_for_flip_target)
+
+    # Copier Channels
+    dp.register_callback_query_handler(cb_copiers_menu,    lambda c: c.data == "admin_copiers")
+    dp.register_callback_query_handler(cb_copier_view,     lambda c: c.data.startswith("copier_view_"))
+    dp.register_callback_query_handler(cb_copier_toggle,   lambda c: c.data.startswith("copier_toggle_"))
+    dp.register_callback_query_handler(cb_copier_delete,   lambda c: c.data.startswith("copier_delete_"))
+    dp.register_callback_query_handler(cb_copier_add,      lambda c: c.data == "copier_add", state="*")
+    dp.register_message_handler(msg_copier_channel_id,     state=AdminStates.copier_waiting_channel_id)
+    dp.register_message_handler(msg_copier_name,           state=AdminStates.copier_waiting_name)
+    dp.register_callback_query_handler(cb_copier_tone,     lambda c: c.data.startswith("copier_tone_"), state="*")
+    dp.register_callback_query_handler(cb_copier_risk_type, lambda c: c.data.startswith("copier_rtype_"), state="*")
+    dp.register_message_handler(msg_copier_risk_value,     state=AdminStates.copier_waiting_risk_value)
+    dp.register_message_handler(msg_copier_max_trades,     state=AdminStates.copier_waiting_max_trades)
+    dp.register_message_handler(msg_copier_admin_name,     state=AdminStates.copier_waiting_admin_name)

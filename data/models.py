@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS trades (
     status              TEXT    DEFAULT 'OPEN',
     close_stage         TEXT    DEFAULT NULL,
     posted_to_telegram  INTEGER DEFAULT 0,
+    high_watermark      REAL    DEFAULT NULL,
+    forced_outcome      TEXT    DEFAULT NULL,
     created_at          TEXT    DEFAULT CURRENT_TIMESTAMP,
     closed_at           TEXT    DEFAULT NULL
 )
@@ -110,6 +112,7 @@ CREATE TABLE IF NOT EXISTS testimonials (
 CREATE_FLIP_CAMPAIGNS = """
 CREATE TABLE IF NOT EXISTS flip_campaigns (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id      TEXT    DEFAULT NULL,
     start_balance   REAL    NOT NULL,
     target_balance  REAL    NOT NULL,
     current_balance REAL    NOT NULL,
@@ -117,6 +120,27 @@ CREATE TABLE IF NOT EXISTS flip_campaigns (
     trade_count     INTEGER DEFAULT 0,
     created_at      TEXT    DEFAULT CURRENT_TIMESTAMP,
     completed_at    TEXT    DEFAULT NULL
+)
+"""
+
+# ------------------------------------------------------------------
+# Table: copier_channels
+# One row per Telegram channel that copies the master signal.
+# Each channel can have its own tone, risk settings, and flip campaign.
+# ------------------------------------------------------------------
+CREATE_COPIER_CHANNELS = """
+CREATE TABLE IF NOT EXISTS copier_channels (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel_id          TEXT    NOT NULL UNIQUE,
+    owner_user_id       INTEGER DEFAULT NULL,
+    name                TEXT    DEFAULT 'My Channel',
+    tone                TEXT    DEFAULT 'PROFESSIONAL',
+    risk_type           TEXT    DEFAULT 'USD_RISK',
+    risk_value          REAL    DEFAULT 50.0,
+    max_trades_per_day  INTEGER DEFAULT 3,
+    active              INTEGER DEFAULT 1,
+    admin_name          TEXT    DEFAULT 'Admin',
+    created_at          TEXT    DEFAULT CURRENT_TIMESTAMP
 )
 """
 
@@ -141,6 +165,14 @@ MIGRATION_ADMIN_CONTACT = """
 ALTER TABLE settings ADD COLUMN admin_contact TEXT DEFAULT '@MisterTrade'
 """
 
+# Safe migrations — each runs inside a try/except in init_db()
+ALL_MIGRATIONS: list[str] = [
+    "ALTER TABLE settings ADD COLUMN admin_contact TEXT DEFAULT '@MisterTrade'",
+    "ALTER TABLE trades ADD COLUMN high_watermark REAL DEFAULT NULL",
+    "ALTER TABLE trades ADD COLUMN forced_outcome TEXT DEFAULT NULL",
+    "ALTER TABLE flip_campaigns ADD COLUMN channel_id TEXT DEFAULT NULL",
+]
+
 # ------------------------------------------------------------------
 # Ordered list used by database.init_db()
 # ------------------------------------------------------------------
@@ -151,4 +183,5 @@ ALL_TABLES: list[str] = [
     CREATE_SYSTEM_LOG,
     CREATE_TESTIMONIALS,
     CREATE_FLIP_CAMPAIGNS,
+    CREATE_COPIER_CHANNELS,
 ]

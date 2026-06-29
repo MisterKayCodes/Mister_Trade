@@ -28,11 +28,12 @@ def main_menu_kb() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🗑️ Clear Trades",      callback_data="admin_clear"),
         InlineKeyboardButton(text="🔄 Toggle Trading",    callback_data="admin_toggle"),
         InlineKeyboardButton(text="🔄 Flip Campaign",     callback_data="admin_flip"),
+        InlineKeyboardButton(text="📡 Copier Channels",   callback_data="admin_copiers"),
     )
-    
+
     if TEST_MODE:
         keyboard.add(InlineKeyboardButton(text="🧪 Test Mode (Scheduler)", callback_data="admin_test_mode"))
-        
+
     return keyboard
 
 
@@ -143,4 +144,34 @@ def testimonials_kb() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🗑️ Delete Testimonial", callback_data="testimonial_delete"),
         InlineKeyboardButton(text="🔙 Back", callback_data="admin_content"),
     )
+    return keyboard
+
+
+# ── Copier Channels keyboard ─────────────────────────────────────────────────
+def copier_channels_kb(channels: list) -> InlineKeyboardMarkup:
+    """Lists all copier channels with toggle/delete actions."""
+    keyboard = InlineKeyboardMarkup(row_width=1)
+    for ch in channels:
+        status  = "✅" if ch["active"] else "⏸️"
+        label   = f"{status} {ch['name']} ({ch['tone']})"
+        keyboard.add(
+            InlineKeyboardButton(
+                text=label,
+                callback_data=f"copier_view_{ch['channel_id']}"
+            )
+        )
+    keyboard.add(InlineKeyboardButton(text="➕ Add New Channel", callback_data="copier_add"))
+    keyboard.add(InlineKeyboardButton(text="← Back", callback_data="admin_main"))
+    return keyboard
+
+
+def copier_channel_detail_kb(channel_id: str, active: bool) -> InlineKeyboardMarkup:
+    """Actions for a single copier channel."""
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    toggle_label = "⏸️ Pause Channel" if active else "▶️ Activate Channel"
+    keyboard.add(
+        InlineKeyboardButton(text=toggle_label, callback_data=f"copier_toggle_{channel_id}"),
+        InlineKeyboardButton(text="🗑️ Remove",  callback_data=f"copier_delete_{channel_id}"),
+    )
+    keyboard.add(InlineKeyboardButton(text="← Back to Channels", callback_data="admin_copiers"))
     return keyboard

@@ -21,6 +21,7 @@ from aiogram import executor
 from data.database import init_db
 from services.trade_engine import run_forever
 from services.scheduler import start_scheduler
+from services.live_monitor import run_live_monitor
 from bot.setup import bot, dp
 from bot.notification_handler import process_events
 from config import BOT_TOKEN
@@ -42,8 +43,9 @@ logger = logging.getLogger(__name__)
 async def on_startup(dispatcher) -> None:
     logger.info("[main] Bot polling started.")
     asyncio.create_task(process_events(bot))
+    asyncio.create_task(run_live_monitor())
     start_scheduler(bot)
-    logger.info("[main] All services running.")
+    logger.info("[main] All services running (event bus + live monitor + scheduler).")
 
 
 async def on_shutdown(dispatcher) -> None:

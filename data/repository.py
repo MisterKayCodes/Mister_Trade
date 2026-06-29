@@ -215,6 +215,18 @@ def update_trade_price(trade_id: int, price: float) -> None:
     conn.close()
 
 
+def update_trade_watermark(trade_id: int, watermark: float) -> None:
+    """Update the high watermark (highest price reached in favour of trade)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE trades SET high_watermark = ? WHERE id = ?",
+        (watermark, trade_id)
+    )
+    conn.commit()
+    conn.close()
+
+
 def close_trade(trade_id: int, final_price: float, close_stage: str) -> None:
     """
     Mark a trade as closed.
@@ -459,3 +471,126 @@ def stop_flip_campaign(cid: int) -> None:
     )
     conn.commit()
     conn.close()
+
+
+# ==============================================================
+# COPIER CHANNELS
+# ==============================================================
+
+def create_copier_channel(
+    channel_id: str,
+    name: str,
+    tone: str = "PROFESSIONAL",
+    risk_type: str = "USD_RISK",
+    risk_value: float = 50.0,
+    max_trades_per_day: int = 3,
+    admin_name: str = "Admin",
+    owner_user_id: int = None,
+) -> int:
+    """Register a new copier channel. Returns its database ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        INSERT OR IGNORE INTO copier_channels
+            (channel_id, owner_user_id, name, tone, risk_type, risk_value, max_trades_per_day, admin_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (channel_id, owner_user_id, name, tone, risk_type, risk_value, max_trades_per_day, admin_name)
+    )
+    cid = cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return cid
+
+
+def get_all_active_copier_channels() -> list[dict]:
+    """Return all active copier channels."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM copier_channels WHERE active = 1 ORDER BY id")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_all_copier_channels() -> list[dict]:
+    """Return all copier channels (active + inactive) for admin display."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM copier_channels ORDER BY id")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_copier_channel_by_id(channel_id: str) -> Optional[dict]:
+    """Look up a single copier channel by its Telegram channel ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM copier_channels WHERE channel_id = ?", (channel_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def toggle_copier_channel(channel_id: str) -> bool:
+    """Toggle a channel active <-> inactive. Returns the new active state."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE copier_channels SET active = CASE WHEN active = 1 THEN 0 ELSE 1 END WHERE channel_id = ?",
+        (channel_id,)
+    )
+    cursor.execute("SELECT active FROM copier_channels WHERE channel_id = ?", (channel_id,))
+    row = cursor.fetchone()
+    conn.commit()
+    conn.close()
+    return bool(row["active"]) if row else False
+
+
+def update_copier_channel(channel_id: str, **kwargs) -> None:
+    """
+    Update one or more fields on a copier channel.
+    Allowed keys: name, tone, risk_type, risk_value, max_trades_per_day, admin_name
+
+    WARNING: keys are interpolated — only call with hard-coded column names.
+    """
+    allowed = {"name", "tone", "risk_type", "risk_value", "max_trades_per_day", "admin_name"}
+    fields = {k: v for k, v in kwargs.items() if k in allowed}
+    if not fields:
+        return
+    set_clause = ", ".join(f"{k} = ?" for k in fields)
+    values = list(fields.values()) + [channel_id]
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(f"UPDATE copier_channels SET {set_clause} WHERE channel_id = ?", values)
+    conn.commit()
+    conn.close()
+
+
+def delete_copier_channel(channel_id: str) -> None:
+    """Permanently remove a copier channel."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM copier_channels WHERE channel_id = ?", (channel_id,))
+    conn.commit()
+    conn.close()
+
+
+def count_channel_trades_today(channel_id: str) -> int:
+    """
+    Count how many trades have already been distributed to a specific channel today.
+    We use the master trades table since all channels receive the same base trade.
+    This serves as a quota check before sending a signal to a channel.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    cursor.execute(
+        "SELECT COUNT(*) AS cnt FROM trades WHERE date(created_at) = ?",
+        (today,)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return int(row["cnt"]) if row else 0

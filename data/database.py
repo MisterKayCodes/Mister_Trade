@@ -14,7 +14,7 @@ Rules:
 
 import sqlite3
 from config import DB_PATH
-from data.models import ALL_TABLES, SEED_SETTINGS, MIGRATION_ADMIN_CONTACT
+from data.models import ALL_TABLES, SEED_SETTINGS, ALL_MIGRATIONS
 
 
 def get_connection() -> sqlite3.Connection:
@@ -42,11 +42,13 @@ def init_db() -> None:
         cursor.execute(table_sql)
 
     cursor.execute(SEED_SETTINGS)
-    
-    try:
-        cursor.execute(MIGRATION_ADMIN_CONTACT)
-    except sqlite3.OperationalError:
-        pass # Column already exists
+
+    # Run all migrations safely — each is a no-op if the column already exists
+    for migration_sql in ALL_MIGRATIONS:
+        try:
+            cursor.execute(migration_sql)
+        except sqlite3.OperationalError:
+            pass  # Column already exists — safe to skip
 
     conn.commit()
     conn.close()

@@ -72,7 +72,12 @@ async def post_daily_news(bot: Bot) -> None:
 
 
 async def execute_trade(bot: Bot, trade_num: int) -> None:
-    """Creates a backdated trade, hits TP1, and schedules follow-ups."""
+    """Creates a backdated trade at TP1 and fires the SIGNAL_POST event.
+    
+    The live_monitor service (services/live_monitor.py) takes over from here,
+    polling the real price every 60 seconds and firing TP2/TP3/SL/BREAK_EVEN
+    events as the market actually moves. No more time-travel scheduling.
+    """
     try:
         settings = repo.get_settings()
         if not int(settings.get("trading_enabled", 1)):
@@ -82,37 +87,10 @@ async def execute_trade(bot: Bot, trade_num: int) -> None:
         trade = generate_fake_trade()
         logger.info(f"[scheduler] Trade {trade_num} generated: {trade['pair']} {trade['direction']}")
 
-        # 1. Post Signal (TP1 hit)
+        # Fire signal — live_monitor will handle all follow-up events
         event_bus.publish("SIGNAL_POST", trade)
 
-        # 2. Schedule TP2 / TP3 closes later today
-        delay_tp2 = random.randint(60, 180)
-        scheduler.add_job(
-            close_trade_stage,
-            trigger="date",
-            run_date=datetime.now(timezone.utc) + timedelta(minutes=delay_tp2),
-            args=[bot, trade, "TP2"]
-        )
-
-        delay_tp3 = random.randint(240, 360)
-        scheduler.add_job(
-            close_trade_stage,
-            trigger="date",
-            run_date=datetime.now(timezone.utc) + timedelta(minutes=delay_tp3),
-            args=[bot, trade, "TP3"]
-        )
-
-        # 3. Flip Campaign Logic (5 mins later)
-        campaign = repo.get_active_flip_campaign()
-        if campaign:
-            scheduler.add_job(
-                process_flip_update,
-                trigger="date",
-                run_date=datetime.now(timezone.utc) + timedelta(minutes=5),
-                args=[bot, trade, campaign]
-            )
-
-        # 4. Promotional Post (10 mins after Trade 2)
+        # Promotional Post (10 mins after Trade 2)
         if trade_num == 2:
             scheduler.add_job(
                 post_promotion,
@@ -123,7 +101,7 @@ async def execute_trade(bot: Bot, trade_num: int) -> None:
 
     except Exception as exc:
         logger.error(f"[scheduler] Trade {trade_num} execution failed: {exc}")
-        
+
         # Reschedule to try again in 15 minutes
         retry_time = datetime.now(timezone.utc) + timedelta(minutes=15)
         scheduler.add_job(
@@ -133,93 +111,11 @@ async def execute_trade(bot: Bot, trade_num: int) -> None:
             args=[bot, trade_num],
             id=f"trade{trade_num}_retry_{int(retry_time.timestamp())}"
         )
-        
+
         await notifier.notify_red_error(
             bot,
             f"Trade {trade_num} failed to fire. *Retrying in 15 minutes*.\n\nError: `{exc}`\n\nCheck the log for details."
         )
-
-
-async def close_trade_stage(bot: Bot, trade: dict, stage: str) -> None:
-    try:
-        # Re-fetch trade to ensure it wasn't manually cleared
-        active = repo.get_active_trade(trade["pair"])
-        if not active or active["id"] != trade["id"]:
-            # Trade was cleared manually — this is expected, not an error
-            await notifier.notify_soft_error(
-                bot,
-                f"{stage} close for {trade['pair']} was skipped — the trade was already cleared or replaced."
-            )
-            return
-
-        price = trade.get(stage.lower())
-        if price is None:
-            await notifier.notify_red_error(bot, f"Could not find price key `{stage.lower()}` in trade dict for {trade['pair']}. Stage skipped.")
-            return
-
-        repo.update_trade_stage(trade["id"], stage)
-        repo.update_trade_price(trade["id"], price)
-        
-        if stage == "TP3":
-            repo.close_trade(trade["id"], price, stage)
-            repo.increment_win_streak()
-
-        event_bus.publish("TRADE_CLOSED", {
-            "pair": trade["pair"],
-            "direction": trade["direction"],
-            "entry": trade["entry"],
-            "close_price": price,
-            "close_stage": stage,
-            "lot_size": trade["lot_size"]
-        })
-    except Exception as exc:
-        logger.error(f"[scheduler] Close trade stage {stage} failed: {exc}")
-        await notifier.notify_red_error(bot, f"{stage} close for {trade['pair']} crashed: `{exc}`")
-
-
-async def process_flip_update(bot: Bot, trade: dict, campaign: dict) -> None:
-    """Calculate compounding profit and publish flip update."""
-    try:
-        from core.flip.engine import compute_flip_lot, should_end_campaign
-        from core.signals.generator import get_pair_rules
-        
-        pair = trade["pair"]
-        rules = get_pair_rules(pair)
-        flip_lot = compute_flip_lot(campaign["current_balance"], pair, rules["sl_offset"])
-        
-        diff = (trade["tp1"] - trade["entry"]) if trade["direction"] == "BUY" else (trade["entry"] - trade["tp1"])
-        multiplier = 100_000 if pair.upper() in ("EURUSD", "GBPUSD") else 1
-        profit = abs(diff * flip_lot * multiplier)
-        
-        new_balance = campaign["current_balance"] + profit
-        repo.update_flip_campaign(campaign["id"], new_balance)
-        
-        event_bus.publish("FLIP_UPDATE", {
-            "pair": pair,
-            "direction": trade["direction"],
-            "entry": trade["entry"],
-            "tp1": trade["tp1"],
-            "lot_size": flip_lot,
-            "old_balance": campaign["current_balance"],
-            "new_balance": new_balance,
-            "target_balance": campaign["target_balance"],
-            "trade_count": campaign["trade_count"] + 1,
-            "profit": profit
-        })
-        
-        if should_end_campaign(new_balance, campaign["target_balance"]):
-            repo.complete_flip_campaign(campaign["id"])
-            event_bus.publish("FLIP_COMPLETE", {
-                "campaign_id": campaign["id"],
-                "start_balance": campaign["start_balance"],
-                "final_balance": new_balance,
-                "target_balance": campaign["target_balance"],
-                "trade_count": campaign["trade_count"] + 1
-            })
-            
-    except Exception as exc:
-        logger.error(f"[scheduler] Flip update failed: {exc}")
-        await notifier.notify_red_error(bot, f"Flip Campaign update crashed: `{exc}`")
 
 
 async def post_promotion(bot: Bot) -> None:
