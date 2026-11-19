@@ -31,6 +31,11 @@ DB_PATH: str = os.getenv("DB_PATH", "mister_trade.db")
 BOT_TOKEN: str  = os.getenv("BOT_TOKEN", "")
 CHANNEL_ID: str = os.getenv("CHANNEL_ID", "")
 
+# Sibling Integration: Mister_Channels Broadcast Gateway & Vault
+MISTER_CHANNELS_URL: str = os.getenv("MISTER_CHANNELS_URL", "http://localhost:8014")
+MISTER_CHANNELS_BROADCAST_KEY: str = os.getenv("MISTER_CHANNELS_BROADCAST_KEY", "")
+VAULT_CHANNEL_ID: str = os.getenv("VAULT_CHANNEL_ID", "-1004355665952")
+
 _raw_admin_ids = os.getenv("ADMIN_IDS", "")
 ADMIN_IDS: list[int] = [
     int(x.strip())

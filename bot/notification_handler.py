@@ -182,13 +182,14 @@ async def _get_recipients() -> list[dict]:
     """
     Build the list of all channels to send to.
     Always includes the master CHANNEL_ID from config as a fallback,
-    plus all registered active copier channels.
+    plus all registered active copier channels, plus active managed channels
+    discovered dynamically from Mister_Channels.
     """
     channels = await asyncio.to_thread(repo.get_all_active_copier_channels)
 
     # Ensure master channel is always included
-    master_ids = {str(ch["channel_id"]) for ch in channels}
-    if CHANNEL_ID and str(CHANNEL_ID) not in master_ids:
+    known_ids = {str(ch["channel_id"]) for ch in channels}
+    if CHANNEL_ID and str(CHANNEL_ID) not in known_ids:
         channels.insert(0, {
             "channel_id":         CHANNEL_ID,
             "name":               "Master Channel",
@@ -198,6 +199,32 @@ async def _get_recipients() -> list[dict]:
             "max_trades_per_day": 99,
             "admin_name":         "Admin",
         })
+        known_ids.add(str(CHANNEL_ID))
+
+    # Dynamically inject active managed channels from Mister_Channels
+    try:
+        from services.broadcast_router import get_managed_channels_cached
+        managed_list = await get_managed_channels_cached()
+        for m_ch in managed_list:
+            t_channel = str(m_ch.get("target_channel", "")).strip()
+            if not t_channel or t_channel in known_ids:
+                continue
+
+            signals_policy = m_ch.get("policies", {}).get("signals_policy", {})
+            if signals_policy.get("enabled", False):
+                channels.append({
+                    "channel_id":         t_channel,
+                    "name":               m_ch.get("campaign_name", "Managed Channel"),
+                    "tone":               signals_policy.get("tone", "PROFESSIONAL"),
+                    "risk_type":          signals_policy.get("risk_type", "LOT_SIZE"),
+                    "risk_value":         float(signals_policy.get("risk_value", 0.1)),
+                    "max_trades_per_day": int(signals_policy.get("max_trades_per_day", 3)),
+                    "admin_name":         m_ch.get("primary_handle", "Admin"),
+                    "is_managed":         True,
+                })
+                known_ids.add(t_channel)
+    except Exception as e:
+        logger.warning(f"[notification] Failed to query managed channels for recipients: {e}")
 
     return channels
 
@@ -212,12 +239,18 @@ async def _send_photo_to_channel(bot: Bot, channel_id: str, image_payload: dict,
             image_bytes = io.BytesIO(f.read())
         image_bytes.name = filename
         photo = InputFile(image_bytes, filename=filename)
-        await bot.send_photo(
-            chat_id=channel_id,
-            photo=photo,
-            caption=caption,
-            parse_mode=ParseMode.MARKDOWN,
-        )
+
+        from services.broadcast_router import is_managed_channel, deliver_signal_via_broadcast
+        is_managed, _ = await is_managed_channel(channel_id)
+        if is_managed:
+            await deliver_signal_via_broadcast(bot, channel_id, photo, caption)
+        else:
+            await bot.send_photo(
+                chat_id=channel_id,
+                photo=photo,
+                caption=caption,
+                parse_mode=ParseMode.MARKDOWN,
+            )
     except Exception as exc:
         logger.error(f"[notification] Failed to send photo to {channel_id}: {exc}")
     finally:
@@ -231,11 +264,16 @@ async def _send_photo_to_channel(bot: Bot, channel_id: str, image_payload: dict,
 async def _send_text_to_channel(bot: Bot, channel_id: str, text: str) -> None:
     """Send a plain text message to one channel."""
     try:
-        await bot.send_message(
-            chat_id=channel_id,
-            text=text,
-            parse_mode=ParseMode.MARKDOWN,
-        )
+        from services.broadcast_router import is_managed_channel, deliver_text_via_broadcast
+        is_managed, _ = await is_managed_channel(channel_id)
+        if is_managed:
+            await deliver_text_via_broadcast(channel_id, text)
+        else:
+            await bot.send_message(
+                chat_id=channel_id,
+                text=text,
+                parse_mode=ParseMode.MARKDOWN,
+            )
     except Exception as exc:
         logger.error(f"[notification] Failed to send text to {channel_id}: {exc}")
 
