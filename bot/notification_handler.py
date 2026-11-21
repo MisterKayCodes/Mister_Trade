@@ -212,6 +212,14 @@ async def _get_recipients() -> list[dict]:
 
             signals_policy = m_ch.get("policies", {}).get("signals_policy", {})
             if signals_policy.get("enabled", False):
+                # Day-of-week validation against campaign's allowed_days policy
+                from datetime import datetime, timezone
+                day_name = datetime.now(timezone.utc).strftime("%a").upper()  # MON, TUE, WED, etc.
+                allowed_days = [d.upper() for d in signals_policy.get("allowed_days", ["MON", "TUE", "WED", "THU", "FRI"])]
+                if day_name not in allowed_days:
+                    logger.debug(f"[notification] Managed channel {t_channel} not allowed on {day_name}. Allowed: {allowed_days}")
+                    continue
+
                 channels.append({
                     "channel_id":         t_channel,
                     "name":               m_ch.get("campaign_name", "Managed Channel"),
@@ -508,6 +516,11 @@ async def send_sl_hit(bot: Bot, payload: dict) -> None:
 
     for ch in recipients:
         try:
+            # Silence Stop-Loss posts for Mister_Channels managed client channels
+            if ch.get("is_managed"):
+                logger.info(f"[notification] Silencing SL_HIT notification for managed channel {ch.get('channel_id')}")
+                continue
+
             tone     = ch.get("tone", "PROFESSIONAL")
             captions = SL_CAPTIONS.get(tone, SL_CAPTIONS["PROFESSIONAL"])
             _, loss  = _calculate_pnl(ch, entry, sl_price, direction, pair)
